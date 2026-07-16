@@ -1,0 +1,5 @@
+# Crash-Tshoot Python app — stdlib only by default.
+# Optional: none required for core diagnosis or LM Studio (uses urllib).
+
+# Dev / packaging helpers (optional)
+# openai>=1.0.0  # not required; we speak OpenAI-compat via urllib

@@ -1,18 +1,22 @@
-# Crash-Tshoot session context (2026-07-16)
+# Crash-Tshoot session context
 
-## Machine
-DESKTOP-72P233G — ASUS, RTX 4060, 28 cores, 128 GB, Win11 Ent N 26200, Samsung 990 PRO NVMe x3
+## Product shape (2026-07-16+)
 
-## User issue that drove the upgrade
-WER LiveKernelEvent **193**, Parameter1 **80e**, dump `WATCHDOG-20260715-1432.dmp`
-= VIDEO_DXGKRNL_LIVEDUMP (not a fatal BSOD). Correlated: C: ~1% free, sunshine.exe crashes.
+- **v1:** PowerShell `SystemDiagnoser.ps1` — Windows Event Viewer + crash diagnoser
+- **v2:** Python `crash_tshoot` — Windows + Linux + offline logs + optional LM Studio
 
-## Product after Full Product Pass
-- SystemDiagnoser.ps1: diagnoser + Event Viewer engine, trends JSON, remote SSH, optional cdb, HTML Event Browser
-- Launchers: Run-Diagnoser.bat, Run-EventViewer.bat, Run-Diagnoser-Remote.bat
-- Docs: README feature matrix, STOPCODES live-dump section, INCIDENTS #3
+## Machine (authoring host)
 
-## Prior incidents (see INCIDENTS.md)
-1. Storage 0x154 + phantom SATA + storahci 129 + volmgr 161
-2. Remote power-loss KP41 BugcheckCode=0
-3. GPU LiveKernel 193
+DESKTOP-72P233G — ASUS, RTX 4060, Win11 26200, Samsung 990 PRO NVMe
+
+## Driving incident
+
+LiveKernelEvent **193** / Param **80e** / WATCHDOG dump — GPU live dump, not fatal BSOD;
+correlated with C: ~1% free and sunshine.exe crashes. See INCIDENTS #3.
+
+## How to run
+
+- Windows app: `Run-Python-Diagnoser.bat` or `python run_diagnoser.py`
+- With LLM: add `--llm` (LM Studio server on :1234)
+- Linux: `./run-diagnoser.sh`
+- Docs: `docs/`

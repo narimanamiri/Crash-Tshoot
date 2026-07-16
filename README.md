@@ -1,122 +1,106 @@
-# Crash-Tshoot — Smart System Diagnoser + Advanced Event Viewer
+# Crash-Tshoot
 
-One-click Windows crash analyzer **and** FullEventLogView-class event browser.
-Double-click a launcher, approve UAC, get a ranked root-cause report with an
-interactive Event Browser — no install, no external modules, no internet.
+Cross-platform **crash & log diagnoser** for **Windows** and **Linux**.
 
-Built from real BSOD / LiveKernel investigations (see [INCIDENTS.md](INCIDENTS.md)).
+- **Application-first:** collectors + pattern rules + clustering + root-cause scoring
+  explain failures **without** an LLM.
+- **Unseen scenarios:** generic log language (panic, hang, corruption, ENOSPC, …) and
+  offline log folders catch cases not in the hard-coded maps.
+- **Optional LM Studio:** local OpenAI-compatible API for advisory narrative only.
+- **Windows deep mode:** existing PowerShell Event Viewer engine still available and
+  auto-merged when present.
 
 ---
 
 ## Quick start
 
-| Launcher | What it does |
-|----------|----------------|
-| [`Run-Diagnoser.bat`](Run-Diagnoser.bat) | Full local crash diagnosis (7 days) + HTML report |
-| [`Run-EventViewer.bat`](Run-EventViewer.bat) | Event Viewer mode: all-channel Critical/Error scan, CSV+JSON export, Event Browser |
-| [`Run-Diagnoser-Remote.bat`](Run-Diagnoser-Remote.bat) | Same diagnosis over **OpenSSH** to another PC |
+### Windows
 
-Reports land in [`Reports\`](Reports) as HTML + JSON (trends) + optional CSV/XML.
+| Launcher | Use when |
+|----------|----------|
+| [`Run-Python-Diagnoser.bat`](Run-Python-Diagnoser.bat) | Cross-platform Python app (recommended default) |
+| [`Run-Diagnoser.bat`](Run-Diagnoser.bat) | PowerShell deep Event Viewer / crash engine |
+| [`Run-EventViewer.bat`](Run-EventViewer.bat) | Full-channel event browse + export |
+| [`Run-Diagnoser-Remote.bat`](Run-Diagnoser-Remote.bat) | SSH remote Windows scan |
 
----
-
-## Feature matrix
-
-### Diagnoser
-
-| Area | Detects |
-|------|---------|
-| Blue screens / power | Kernel-Power `41`, BugCheck `1001`, `6008`; stop-code dictionary; power-loss vs BSOD |
-| LiveKernel / GPU | **LiveKernelEvent 193** (`VIDEO_DXGKRNL_LIVEDUMP`), WATCHDOG dumps, Display TDR `4101`, GPU adapters, Sunshine correlation |
-| Storage | SMART, phantom 0-byte drives, **storahci + stornvme** `129`, I/O `7/51/153`, `volmgr 161`, free space |
-| Hardware | WHEA, Memory Diagnostic, thermal trips |
-| Apps / updates | Service crashes, app crashes, failed updates, pending reboot |
-| Dumps | Minidumps, `MEMORY.DMP`, LiveKernelReports; optional **cdb/WinDbg `!analyze`** |
-| Trends | Compares counters to prior `Reports\*.json` for the same machine |
-| Root cause | Scored summary (storage → WHEA → power → GPU → BSOD → disk space) + action list |
-
-### Event Viewer (FullEventLogView-class)
-
-| Capability | How |
-|------------|-----|
-| All channels | Inventory + optional `-FullEventScan` Critical/Error across enabled logs |
-| Filters | `-Level`, `-EventId`, `-Provider`, `-Channel`, `-MessageContains`, `-StartTime`/`-EndTime`, `-Days` |
-| Custom Views | `-Preset CriticalErrors\|BootShutdown\|BSODPower\|Storage\|GPUDisplay\|SecurityLogon\|WHEA\|AllWarningsPlus` |
-| Offline | `-EvtxPath` / `-LogFolder` for copied `.evtx` files |
-| Remote | `-ComputerName` / `-SshUser` (SSH JSON collector) |
-| Export | `-Export Csv,Json,Xml,Html` + optional `-ExportEvtx` |
-| Aggregates | Top providers / IDs / channels / levels |
-| UI | HTML **Event Browser** tab: search, filter, sort, EventData detail (no WinForms) |
-
----
-
-## Usage examples
-
-```powershell
-# Default diagnosis (also via Run-Diagnoser.bat)
-powershell -ExecutionPolicy Bypass -File .\SystemDiagnoser.ps1 -Days 7
-
-# Event Viewer mode
-powershell -ExecutionPolicy Bypass -File .\SystemDiagnoser.ps1 -EventViewerMode -Days 14
-
-# GPU-focused custom view + exports
-powershell -ExecutionPolicy Bypass -File .\SystemDiagnoser.ps1 -Preset GPUDisplay -Export Csv,Json -Days 14
-
-# Offline forensic logs
-powershell -ExecutionPolicy Bypass -File .\SystemDiagnoser.ps1 -LogFolder D:\copied\winevt\Logs -Days 30 -Export Json
-
-# Remote over SSH
-powershell -ExecutionPolicy Bypass -File .\SystemDiagnoser.ps1 -ComputerName 192.168.20.50 -SshUser ai -Days 7
+```bat
+Run-Python-Diagnoser.bat
+Run-Python-Diagnoser.bat --llm
+Run-Python-Diagnoser.bat --days 14 --log-folder D:\evidence
 ```
 
-| Parameter | Default | Meaning |
-|-----------|---------|---------|
-| `-Days` | `7` | History window |
-| `-NoHtml` | off | Console only |
-| `-Preset` | `Diagnose` | Custom view name (see above) |
-| `-FullEventScan` | off | Critical/Error on all enabled channels |
-| `-EventViewerMode` | off | FullEventScan + CriticalErrors + Csv,Json |
-| `-Export` | `Json` | `Csv,Json,Xml,Html` |
-| `-ExportEvtx` | off | `wevtutil` System channel snapshot |
-| `-MaxEvents` | `5000` | Cap for browser / full scan |
-| `-ComputerName` / `-SshUser` | | Remote SSH |
-| `-EvtxPath` / `-LogFolder` | | Offline EVTX |
+### Linux
+
+```bash
+chmod +x run-diagnoser.sh
+./run-diagnoser.sh --days 7
+sudo ./run-diagnoser.sh --days 7 --llm
+./run-diagnoser.sh --offline-only --log-folder /path/to/logs
+```
+
+Requires **Python 3.10+**. Core diagnosis uses the **stdlib only** (see `requirements.txt`).
 
 ---
 
-## Files
+## What it does
 
-| File | Purpose |
-|------|---------|
-| `Run-Diagnoser.bat` | Local one-click diagnoser |
-| `Run-EventViewer.bat` | Event Viewer mode |
-| `Run-Diagnoser-Remote.bat` | Remote SSH wizard |
-| `SystemDiagnoser.ps1` | Engine |
-| `Reports\` | HTML, JSON, CSV/XML exports |
-| `INCIDENTS.md` | Worked crash cases |
-| `STOPCODES.md` | BSOD + LiveKernel code reference |
-
----
-
-## Requirements
-
-- Windows 10 / 11 (tested on builds 26100 / 26200)
-- Windows PowerShell 5.1
-- Administrator for full coverage (launchers elevate)
-- Remote: OpenSSH Client locally + OpenSSH Server on target
-- Optional dump analysis: Windows SDK **Debugging Tools** (`cdb.exe`)
+| Layer | Windows | Linux | Offline logs |
+|-------|---------|-------|--------------|
+| Live collectors | wevtutil, dumps, disk, GPU; merges `SystemDiagnoser.ps1` | journalctl, dmesg, syslog, SMART, coredumps | `--log` / `--log-folder` |
+| Known rules | LiveKernel 193, TDR, stor* 129, WHEA, BSOD… | OOM, I/O, lockup, GPU hang, thermal… | Same pattern engine |
+| Unseen | Generic panic/timeout/corrupt/power/ENOSPC clusters | Same | Same |
+| Root cause | Scored summary + actions | Same | Same |
+| Optional LLM | LM Studio `/v1/chat/completions` | Same | Same |
+| Reports | `Reports/*.html` + `*.json` with log browser | Same | Same |
 
 ---
 
-## Limitations
+## Documentation
 
-- Does not clear event logs (by design).
-- Does not auto-repair drivers or hardware.
-- Full channel scans are capped (`-MaxEvents`) to avoid multi-GB RAM use.
-- Live CPU temps need BIOS ACPI exposure; prefer HWiNFO64 for thermals.
+| Doc | Topic |
+|-----|--------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Pipeline & package layout |
+| [docs/WINDOWS.md](docs/WINDOWS.md) | Windows collectors & PS merge |
+| [docs/LINUX.md](docs/LINUX.md) | Linux collectors & permissions |
+| [docs/LOG_ANALYSIS.md](docs/LOG_ANALYSIS.md) | Rules, unseen scenarios, extending patterns |
+| [docs/LLM_LM_STUDIO.md](docs/LLM_LM_STUDIO.md) | Optional local LLM setup |
+| [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | Full CLI flags |
+| [STOPCODES.md](STOPCODES.md) | BSOD / LiveKernel codes |
+| [INCIDENTS.md](INCIDENTS.md) | Real diagnosed cases |
+| [CONTEXT.md](CONTEXT.md) | Session / machine notes |
+
+---
+
+## LM Studio (optional)
+
+1. Start LM Studio → Developer → local server (`http://localhost:1234`).
+2. Load a model.
+3. `python run_diagnoser.py --llm`
+
+The HTML report keeps **application root cause** on top; LLM text is an advisory block.
+Details: [docs/LLM_LM_STUDIO.md](docs/LLM_LM_STUDIO.md).
+
+---
+
+## PowerShell engine (Windows)
+
+Still the richest **Event Viewer** experience (presets, exports, interactive browser,
+remote SSH). The Python app calls it when available and merges findings.
+
+See prior README sections historically covered by `SystemDiagnoser.ps1` parameters
+(`-Preset`, `-FullEventScan`, `-Export`, `-ComputerName`, …).
+
+---
+
+## Exit codes
+
+- `0` — no CRITICAL findings  
+- `2` — CRITICAL findings present  
+- `1` — tool/usage error  
 
 ---
 
 ## License / use
 
-Personal diagnostic utility. Read-only against the system; writes only under `Reports\`.
+Personal diagnostic utility. Read-only collectors; writes under `Reports\`.
+LLM traffic stays on the URL you configure (default localhost).
