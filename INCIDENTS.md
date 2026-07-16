@@ -98,6 +98,44 @@ A prior unexpected shutdown on 6/16 made this the second event in a week.
 
 ---
 
+## Incident #3 — Local PC `DESKTOP-72P233G`: LiveKernelEvent 193 (GPU live dump)
+
+- **Date:** 2026-07-15 (WER dump `WATCHDOG-20260715-1432.dmp`); re-confirmed by diagnoser 2026-07-16
+- **Machine:** ASUS desktop, RTX 4060, Windows 11 Enterprise N build 26200
+- **Symptom:** Windows Error Reporting: *“A problem with your hardware caused Windows
+  to stop working correctly”* with **LiveKernelEvent Code 193**, Parameter1 **80e**.
+
+### Root cause
+**Not a fatal BSOD.** Code **193** is `VIDEO_DXGKRNL_LIVEDUMP` — the DirectX graphics
+kernel (`dxgkrnl`) captured a **live watchdog dump** because of a graphics-stack
+hiccup. The scary WER wording is boilerplate.
+
+Contributing / correlated signals on the same machine:
+- **C: at ~1% free** — amplifies instability and failed updates.
+- **`sunshine.exe` crashed 2×** — GPU encode/streaming stress aligns with LiveKernel/GPU events.
+- **No** Kernel-Power 41, **no** WHEA — unlike Incidents #1 and #2.
+
+### Evidence
+| Signal | Meaning |
+|--------|---------|
+| LiveKernelEvent 193 / Param `80e` | dxgkrnl live dump reason code |
+| `WATCHDOG-*.dmp` | Graphics watchdog triage dump |
+| sunshine.exe Application Error 1000 | GPU-heavy app instability |
+| C: 1% free | Critical free-space pressure |
+
+### Resolution path
+1. Free substantial space on **C:** (well above 10%).
+2. Clean-install GPU drivers (DDU → vendor driver).
+3. Update or temporarily quit Sunshine / overlays; re-test.
+4. Optional: open the WATCHDOG dump in WinDbg (`!analyze -v`) for `IMAGE_NAME`.
+
+### How the upgraded diagnoser reports this
+Area **GPU**, title **LiveKernelEvent 193 (VIDEO_DXGKRNL_LIVEDUMP)**, Apps finding
+promoted to WARNING when Sunshine correlates, root cause line prioritizes
+**GPU/DISPLAY** with **CONTRIBUTING** low disk space.
+
+---
+
 ## Method notes (how these were diagnosed)
 
 The repeatable process, now automated by [`SystemDiagnoser.ps1`](SystemDiagnoser.ps1):
@@ -113,10 +151,10 @@ The repeatable process, now automated by [`SystemDiagnoser.ps1`](SystemDiagnoser
 7. **Correlate timeline** around the crash minute for the triggering events.
 
 ### Two contrasting signatures, side by side
-| | Incident #1 (storage) | Incident #2 (power) |
-|--|----------------------|---------------------|
-| Stop code | `0x154` (non-zero) | `0` |
-| Dump written | No (`volmgr 161` failure) | No (none attempted) |
-| `storahci` resets | Yes, recurring | No |
-| WHEA errors | No | No |
-| Verdict | Failing SATA disk | Abrupt power loss / thermal |
+| | Incident #1 (storage) | Incident #2 (power) | Incident #3 (GPU live dump) |
+|--|----------------------|---------------------|------------------------------|
+| Stop / code | `0x154` (non-zero) | `0` | LiveKernel **193** (not a BSOD) |
+| Dump written | No (`volmgr 161` failure) | No (none attempted) | WATCHDOG live dump |
+| `storahci` resets | Yes, recurring | No | No |
+| WHEA errors | No | No | No |
+| Verdict | Failing SATA disk | Abrupt power loss / thermal | dxgkrnl / GPU driver (+ low disk / Sunshine) |

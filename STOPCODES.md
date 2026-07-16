@@ -43,6 +43,25 @@ decimal value to hex, and looks it up here.
 
 ---
 
+## LiveKernel / live-dump codes (not fatal BSODs)
+
+These are **live dumps**: Windows keeps running and writes a triage dump (often under
+`C:\Windows\LiveKernelReports\`). WER may show *“A problem with your hardware…”* —
+that text is generic and does **not** by itself prove a dead component.
+
+| Hex | Name | Plain meaning & first thing to check |
+|-----|------|--------------------------------------|
+| `0x193` | VIDEO_DXGKRNL_LIVEDUMP | Graphics kernel (`dxgkrnl`) live dump. Often Parameter1=`80e`. Update/roll back **GPU drivers**; check WATCHDOG dumps; streaming apps (e.g. Sunshine) can correlate. |
+| `0x144` | USB3 live dump | USB3 stack issue — controllers/devices. |
+| `0x15C` | PDC_WATCHDOG_TIMEOUT_LIVEDUMP | Connected-standby / power-state watchdog. |
+| `0x15E` | NDIS_DRIVER_LIVE_DUMP | Network driver live dump. |
+| `0x190` | WIN32K_CRITICAL_FAILURE_LIVEDUMP | Win32k critical failure live dump. |
+
+Related Event Viewer signals: Display **4101** (TDR), WER **LiveKernelEvent** with Code **193**,
+files named `WATCHDOG-*.dmp`.
+
+---
+
 ## Special case: stop code `0` (no bug-check)
 
 If Kernel-Power `41` shows **`BugcheckCode = 0`** and there's **no dump**, it was
