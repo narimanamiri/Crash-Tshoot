@@ -24,44 +24,56 @@ def score_root_cause(result: DiagnosisResult) -> str:
         t = titles.lower()
         return any(n.lower() in t for n in needles)
 
-    if has("phantom", "storahci", "stornvme", "unexpected_store", "i/o error", "smart", "read-only", "filesystem"):
+    # Highest priority: dump failed + in-page / store exception = storage freeze (pull-the-plug pattern)
+    if has("dump could not", "volmgr 161") and has(
+        "in_page", "in-page", "0xc0000006", "unexpected_store", "0x154", "system_service_exception"
+    ):
+        parts.append(
+            "STORAGE/PAGEFILE PATH: BSOD occurred and Windows could not write the crash dump (volmgr 161) — "
+            "this is why the machine froze until you pulled the power. "
+            "STATUS_IN_PAGE_ERROR / store exceptions mean a page could not be read from disk. "
+            "Back up; check NVMe health/firmware; ensure pagefile sits on a healthy volume with free space; test RAM."
+        )
+    elif has("phantom", "storahci", "stornvme", "unexpected_store", "i/o error", "smart fail", "read-only", "filesystem"):
         parts.append(
             "STORAGE: drive or filesystem failing. Back up; check SMART/cables; fsck or replace the disk."
         )
     if has("whea", "machine check"):
         parts.append("HARDWARE: machine-check / WHEA. Test RAM; check temps; review overclock.")
-    if has("abrupt power", "power loss", "brownout", "psu"):
-        parts.append("POWER: abrupt loss or power-delivery language. Check PSU, cables, UPS.")
-    if has("thermal", "overheat", "temperature above"):
+    if has("abrupt power loss", "power loss / hard lock", "brownout") and not has("blue screen"):
+        parts.append("POWER: abrupt loss or hard lock with no bugcheck. Check PSU, cables, UPS.")
+    if has("thermal trip", "overheat", "temperature above") and not has("blue screen"):
         parts.append("THERMAL: overheating signals. Clean cooling path; verify fans.")
-    if has("livekernel", "tdr", "watchdog", "dxgkrnl", "amdgpu", "gpu hang", "xid"):
+    if has("blue screen", "bugcheck") and not any("STORAGE/PAGEFILE" in p for p in parts):
         parts.append(
-            "GPU/DISPLAY: graphics stack instability. Update/reinstall GPU drivers; check power/thermals; "
-            "quit GPU-heavy overlays if present."
+            "CRASH: BSOD stop code recorded. Analyze minidump if present; match Param1 (e.g. 0xC0000006 = in-page/disk)."
         )
+    if has("livekernel", "tdr", "dxgkrnl", "amdgpu", "gpu hang", "xid") and not has("blue screen"):
+        parts.append(
+            "GPU/DISPLAY: graphics stack instability. Update/reinstall GPU drivers; check power/thermals."
+        )
+    elif has("livekernel", "tdr") and has("blue screen"):
+        parts.append("CONTRIBUTING: prior GPU LiveKernel/TDR noise — secondary to the BSOD unless dumps implicate the GPU driver.")
     if has("oom", "out of memory", "oom-kill"):
         parts.append("MEMORY PRESSURE: OOM killer ran. Find the leak or add RAM / raise limits.")
     if has("lockup", "hung_task", "soft lockup", "hard lockup"):
         parts.append("HANG: kernel lockup. Check drivers (GPU/storage/NFS); review dmesg around the stamp.")
-    if has("blue screen", "bugcheck", "panic", "segfault", "oops"):
-        parts.append("CRASH: OS/kernel or process crash recorded. Analyze dump/core for the faulting module.")
     if has("low disk space", "disk full", "enospc"):
         parts.append("CONTRIBUTING: critically low free space — free space before chasing subtler bugs.")
 
-    # Prefer PS engine root cause as additive hint
     ps = result.snapshot.get("ps_root_cause")
     if ps and ps not in parts:
-        parts.insert(0, f"(Windows deep scan) {ps}")
+        parts.append(f"(Windows deep scan) {ps}")
 
     if not parts:
         crit = [f for f in result.findings if f.severity == Severity.CRITICAL]
         warn = [f for f in result.findings if f.severity == Severity.WARNING]
         if crit:
             top = crit[0]
-            return f"Primary signal: [{top.severity.value}] {top.area} — {top.title}. Review CRITICAL findings and log evidence."
+            return f"Primary signal: [{top.severity.value}] {top.area} - {top.title}. Review CRITICAL findings and log evidence."
         if warn:
             top = warn[0]
-            return f"No dominant crash signature; top warning: {top.area} — {top.title}."
+            return f"No dominant crash signature; top warning: {top.area} - {top.title}."
         return "No dominant crash signature in the scan window. System looks healthy (or only informational findings)."
 
     return " ".join(parts)
@@ -82,10 +94,13 @@ def action_list(result: DiagnosisResult) -> list[str]:
 def finalize(result: DiagnosisResult) -> DiagnosisResult:
     result.root_cause = score_root_cause(result)
     result.actions = action_list(result)
-    # Sort findings
+    # Match historical INCIDENTS.md profiles (#1–#4)
+    from .incidents import apply_incident_matches
+
+    result = apply_incident_matches(result)
+    # Re-sort after incident findings appended
     order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.INFO: 2, Severity.OK: 3}
     result.findings.sort(key=lambda f: (order.get(f.severity, 9), f.area, f.title))
-    # Browser events from log hits
     result.browser_events = [
         {
             "t": h.when or "",

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Crash-Tshoot Event Viewer</title>
+<style>
+body{font-family:Segoe UI,sans-serif;margin:0;background:#f4f5f7}
+header{background:#0a5;color:#fff;padding:16px 20px}
+.wrap{padding:16px 20px}
+.filters input,.filters select{padding:6px;margin:4px}
+table{border-collapse:collapse;width:100%;background:#fff;font-size:.88rem}
+th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#0a5;color:#fff;cursor:pointer}
+tr.bm{background:#d6eaff}
+#detail{margin-top:12px;background:#111;color:#ddd;padding:12px;border-radius:6px;white-space:pre-wrap;max-height:260px;overflow:auto;font-size:.82rem}
+.bar button{margin:4px;padding:6px 10px}
+</style></head><body>
+<header><h1>Event Viewer</h1><div>3 event(s) loaded · bookmarks + string columns · FullEventLogView-class filters</div></header>
+<div class="wrap">
+<div class="filters">
+  <input id="q" placeholder="Quick filter (message/provider/channel)..." style="width:40%" oninput="filt()">
+  <select id="lv" onchange="filt()"><option value="">All levels</option>
+    <option>Critical</option><option>Error</option><option>Warning</option><option>Information</option></select>
+  <input id="fid" placeholder="Event ID" style="width:90px" oninput="filt()">
+  <input id="fprov" placeholder="Provider" style="width:140px" oninput="filt()">
+  <label><input type="checkbox" id="bmOnly" onchange="filt()"> Bookmarks only</label>
+</div>
+<div class="bar">
+  <button onclick="toggleBm()">Toggle bookmark (selected)</button>
+  <button onclick="nextBm(1)">Next bookmark</button>
+  <button onclick="nextBm(-1)">Prev bookmark</button>
+  <button onclick="clearBm()">Clear bookmarks</button>
+</div>
+<table id="ev"><thead><tr>
+  <th onclick="sortK('t')">Time</th><th onclick="sortK('l')">Level</th><th onclick="sortK('i')">Id</th>
+  <th onclick="sortK('r')">Record</th><th onclick="sortK('p')">Provider</th><th onclick="sortK('c')">Channel</th>
+  <th>String1</th><th>String2</th><th>Message</th>
+</tr></thead><tbody></tbody></table>
+<div id="detail">Select a row for EventData / description (lower pane).</div>
+<div><h4>By Level</h4><table><tr><td>Critical</td><td>1</td></tr><tr><td>Information</td><td>1</td></tr><tr><td>Error</td><td>1</td></tr></table><h4>By Provider</h4><table><tr><td>EventLog</td><td>2</td></tr><tr><td>Microsoft-Windows-Kernel-Power</td><td>1</td></tr></table><h4>By Id</h4><table><tr><td>41</td><td>1</td></tr><tr><td>6005</td><td>1</td></tr><tr><td>6008</td><td>1</td></tr></table><h4>By Channel</h4><table><tr><td>System</td><td>3</td></tr></table></div>
+</div>
+<script>
+const EV=[{"t": "2026-07-21T07:00:34.6872158+02:00", "l": "Critical", "i": 41, "r": 1650, "p": "Microsoft-Windows-Kernel-Power", "c": "System", "m": "The system has rebooted without cleanly shutting down first. This error could be caused if the system stopped responding, crashed, or lost power unexpectedly.", "s": ["0", "0x0", "0", "0", "3", "0", "true", "0", "false", "0"], "d": {"InputSuppressionState": "0", "BugcheckParameter2": "0x0", "Checkpoint": "0", "PowerButtonTimestamp": "0", "LidState": "3", "CheckpointStatus": "0", "BugcheckInfoFromEFI": "true", "BootAppStatus": "0", "LongPowerButtonPressDetected": "false", "CsEntryScenarioInstanceIdV2": "0", "CsEntryScenarioInstanceId": "0", "BugcheckParameter4": "0x0", "BugcheckCode": "59", "SleepInProgress": "0", "SystemSleepTransitionsToOn": "0", "PowerButtonSuppressionState": "0", "LidReliability": "false", "ConnectedStandbyInProgress": "false", "BugcheckParameter1": "0xc0000006", "BugcheckParameter3": "0x0", "WHEABootErrorCount": "0"}}, {"t": "2026-07-21T07:00:41.9360812+02:00", "l": "Information", "i": 6005, "r": 1635, "p": "EventLog", "c": "System", "m": "The Event log service was started.", "s": [], "d": {}}, {"t": "2026-07-21T07:00:41.9352113+02:00", "l": "Error", "i": 6008, "r": 1633, "p": "EventLog", "c": "System", "m": "The previous system shutdown at 11:25:02 PM on ?7/?20/?2026 was unexpected.", "s": ["", "", "", "", "", "", ""], "d": {"String3": "", "String0": "", "String1": "", "String4": "", "String6": "", "String2": "", "String5": ""}}];
+let sortKey='t', sortDir=-1, selected=-1;
+const BM=new Set(JSON.parse(localStorage.getItem('ct_ev_bm')||'[]'));
+function saveBm(){ localStorage.setItem('ct_ev_bm', JSON.stringify([...BM])); }
+function keyOf(e){ return e.t+'|'+e.i+'|'+e.r+'|'+e.p; }
+function filt(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const lv=document.getElementById('lv').value;
+  const id=(document.getElementById('fid').value||'').trim();
+  const pr=(document.getElementById('fprov').value||'').toLowerCase();
+  const bmOnly=document.getElementById('bmOnly').checked;
+  let rows=EV.slice();
+  rows=rows.filter(e=>{
+    if(bmOnly && !BM.has(keyOf(e))) return false;
+    if(lv && e.l!==lv) return false;
+    if(id && String(e.i)!==id) return false;
+    if(pr && !(e.p||'').toLowerCase().includes(pr)) return false;
+    if(q && !((e.m||'')+(e.p||'')+(e.c||'')+(e.s||[]).join(' ')).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  rows.sort((a,b)=>{
+    let x=a[sortKey], y=b[sortKey];
+    if(sortKey==='i'||sortKey==='r'){ x=+x||0; y=+y||0; }
+    if(x<y) return -1*sortDir; if(x>y) return 1*sortDir; return 0;
+  });
+  const tb=document.querySelector('#ev tbody'); tb.innerHTML='';
+  rows.slice(0,2500).forEach((e,idx)=>{
+    const tr=document.createElement('tr');
+    if(BM.has(keyOf(e))) tr.classList.add('bm');
+    const s1=(e.s&&e.s[0])||''; const s2=(e.s&&e.s[1])||'';
+    tr.innerHTML=`<td>${esc(e.t)}</td><td>${esc(e.l)}</td><td>${e.i}</td><td>${e.r||''}</td><td>${esc(e.p)}</td><td>${esc(e.c)}</td><td>${esc(String(s1).slice(0,40))}</td><td>${esc(String(s2).slice(0,40))}</td><td>${esc((e.m||'').slice(0,120))}</td>`;
+    tr.onclick=()=>{ selected=EV.indexOf(e); show(e); document.querySelectorAll('#ev tbody tr').forEach(x=>x.style.outline=''); tr.style.outline='2px solid #08c'; };
+    tb.appendChild(tr);
+  });
+}
+function sortK(k){ if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=1;} filt(); }
+function show(e){
+  const d=e.d||{};
+  const lines=Object.keys(d).map(k=>k+': '+d[k]);
+  document.getElementById('detail').textContent=
+    e.t+' | '+e.l+' | Id '+e.i+' | Record '+e.r+' | '+e.p+' | '+e.c+'\n\n'+(e.m||'')+'\n\nEventData / Strings:\n'+(lines.join('\n')||'(none)');
+}
+function toggleBm(){
+  if(selected<0) return;
+  const e=EV[selected]; const k=keyOf(e);
+  if(BM.has(k)) BM.delete(k); else BM.add(k);
+  saveBm(); filt();
+}
+function nextBm(dir){
+  const keys=[...BM];
+  if(!keys.length) return;
+  let idx=selected;
+  for(let n=0;n<EV.length;n++){
+    idx=(idx+dir+EV.length)%EV.length;
+    if(BM.has(keyOf(EV[idx]))){ selected=idx; show(EV[idx]); filt(); return; }
+  }
+}
+function clearBm(){ BM.clear(); saveBm(); filt(); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+filt();
+</script></body></html>

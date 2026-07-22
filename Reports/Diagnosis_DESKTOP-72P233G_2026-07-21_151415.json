@@ -1,0 +1,879 @@
+{
+  "hostname": "DESKTOP-72P233G",
+  "platform": "windows",
+  "generated": "2026-07-21T15:14:13",
+  "days": 3,
+  "snapshot": {
+    "system": "Windows",
+    "release": "11",
+    "version": "10.0.26200",
+    "machine": "AMD64",
+    "python": "3.13.13",
+    "gpu": "NVIDIA GeForce RTX 4060",
+    "last_boot": "2026-07-21T07:00:31.5011160+02:00",
+    "matched_incidents": [
+      {
+        "id": "4",
+        "name": "BSOD 0x3B IN_PAGE_ERROR + hung dump (pull plug)",
+        "score": 100,
+        "why": "BSOD 0x3B SYSTEM_SERVICE_EXCEPTION; Param1 STATUS_IN_PAGE_ERROR (0xC0000006); volmgr 161 dump failed / freeze until power pull; no minidump written; 6008 unexpected shutdown",
+        "summary": "SYSTEM_SERVICE_EXCEPTION with STATUS_IN_PAGE_ERROR (0xC0000006). Dump write fails (volmgr 161) so the machine freezes until power is pulled \u2014 same hang mechanic as #1.",
+        "resolution": [
+          "Free substantial space on C: / pagefile volume",
+          "NVMe health + firmware; reseat SSD if needed",
+          "MemTest86 (in-page can also be RAM)",
+          "Ensure dumps can write to a healthy volume"
+        ],
+        "evidence": [
+          "Kernel-Power 41 Bugcheck 0x3B",
+          "BugcheckParameter1 = 0xC0000006",
+          "volmgr 161 / BugCheckProgress 0x00040049",
+          "No minidump for this crash",
+          "Event 6008 at crash wall-clock time"
+        ]
+      },
+      {
+        "id": "3",
+        "name": "LiveKernelEvent 193 (GPU live dump)",
+        "score": 75,
+        "why": "LiveKernelEvent 193 / WATCHDOG; Display TDR; low disk space contributing",
+        "summary": "VIDEO_DXGKRNL_LIVEDUMP \u2014 graphics kernel live dump (often Param 80e). Not a fatal BSOD; WER hardware wording is boilerplate. Correlate Sunshine/overlays and free space.",
+        "resolution": [
+          "Free space on C: (well above 10%)",
+          "DDU + clean GPU driver install",
+          "Update or quit Sunshine / GPU overlays",
+          "Optional WinDbg !analyze on WATCHDOG dump"
+        ],
+        "evidence": [
+          "WER LiveKernelEvent Code 193 / Param 80e",
+          "WATCHDOG-*.dmp under LiveKernelReports",
+          "Optional Display 4101 TDR",
+          "Optional sunshine.exe crashes; low C: free space"
+        ]
+      }
+    ]
+  },
+  "counters": {
+    "FreePct": 4,
+    "GpuName": "NVIDIA GeForce RTX 4060",
+    "KP41": 1,
+    "E6008": 1,
+    "Volmgr161": 1,
+    "BugCheck": 1,
+    "LastBugcheck": "0x3B",
+    "LastBugcheckParam1": "0xC0000006",
+    "StorAhci129": 0,
+    "StorNvme129": 0,
+    "LiveKernel193": 54,
+    "DisplayTDR": 0
+  },
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "area": "Crash",
+      "title": "Blue screen: SYSTEM_SERVICE_EXCEPTION (0x3B)",
+      "detail": "At 2026-07-21T07:00:34.6872158+02:00. Stop 0x3B SYSTEM_SERVICE_EXCEPTION. Param1=0xC0000006 Param2=0x0 Param3=0x0 Param4=0x0. Error in a system call \u2014 often graphics/storage/system driver. Param1 decode: STATUS_IN_PAGE_ERROR \u2014 page could not be read from disk/pagefile (failing storage, bad cable, or RAM).",
+      "when": "2026-07-21T07:00:34.6872158+02:00",
+      "action": "STATUS_IN_PAGE_ERROR / store failure \u2014 back up; check NVMe/SATA health & cables; test RAM (MemTest86); free space on pagefile volume.",
+      "evidence": [
+        "At 2026-07-21T07:00:34.6872158+02:00. Stop 0x3B SYSTEM_SERVICE_EXCEPTION. Param1=0xC0000006 Param2=0x0 Param3=0x0 Param4=0x0. Error in a system call \u2014 often graphics/storage/system driver. Param1 decode: STATUS_IN_PAGE_ERROR \u2014 page could not be read from disk/pagefile (failing storage, bad cable, or RAM)."
+      ],
+      "source": "collector"
+    },
+    {
+      "severity": "CRITICAL",
+      "area": "Crash",
+      "title": "Crash dump could NOT be written (volmgr 161)",
+      "detail": "Dump file creation failed due to error during dump creation. BugCheckProgress was: 0x00040049",
+      "when": "2026-07-21T07:00:34.4344657+02:00",
+      "action": "Dump write failed \u2014 often why a BSOD freezes until you pull the plug. Disk/pagefile path was unresponsive; check storage health.",
+      "evidence": [
+        "Dump file creation failed due to error during dump creation. BugCheckProgress was: 0x00040049"
+      ],
+      "source": "collector"
+    },
+    {
+      "severity": "CRITICAL",
+      "area": "Disk",
+      "title": "Low disk space on C:\\ (4% free)",
+      "detail": "75.1 GB of 1999.2 GB free. Below 10% causes instability.",
+      "when": null,
+      "action": "Free substantial space on this volume.",
+      "evidence": [],
+      "source": "collector"
+    },
+    {
+      "severity": "CRITICAL",
+      "area": "Incident",
+      "title": "Matches Incident #3: LiveKernelEvent 193 (GPU live dump) (score 75)",
+      "detail": "LiveKernelEvent 193 / WATCHDOG; Display TDR; low disk space contributing. VIDEO_DXGKRNL_LIVEDUMP \u2014 graphics kernel live dump (often Param 80e). Not a fatal BSOD; WER hardware wording is boilerplate. Correlate Sunshine/overlays and free space.",
+      "when": null,
+      "action": "Free space on C: (well above 10%); DDU + clean GPU driver install; Update or quit Sunshine / GPU overlays",
+      "evidence": [
+        "WER LiveKernelEvent Code 193 / Param 80e",
+        "WATCHDOG-*.dmp under LiveKernelReports",
+        "Optional Display 4101 TDR",
+        "Optional sunshine.exe crashes; low C: free space"
+      ],
+      "source": "rules"
+    },
+    {
+      "severity": "CRITICAL",
+      "area": "Incident",
+      "title": "Matches Incident #4: BSOD 0x3B IN_PAGE_ERROR + hung dump (pull plug) (score 100)",
+      "detail": "BSOD 0x3B SYSTEM_SERVICE_EXCEPTION; Param1 STATUS_IN_PAGE_ERROR (0xC0000006); volmgr 161 dump failed / freeze until power pull; no minidump written; 6008 unexpected shutdown. SYSTEM_SERVICE_EXCEPTION with STATUS_IN_PAGE_ERROR (0xC0000006). Dump write fails (volmgr 161) so the machine freezes until power is pulled \u2014 same hang mechanic as #1.",
+      "when": null,
+      "action": "Free substantial space on C: / pagefile volume; NVMe health + firmware; reseat SSD if needed; MemTest86 (in-page can also be RAM)",
+      "evidence": [
+        "Kernel-Power 41 Bugcheck 0x3B",
+        "BugcheckParameter1 = 0xC0000006",
+        "volmgr 161 / BugCheckProgress 0x00040049",
+        "No minidump for this crash",
+        "Event 6008 at crash wall-clock time"
+      ],
+      "source": "rules"
+    },
+    {
+      "severity": "CRITICAL",
+      "area": "Power",
+      "title": "Unexpected shutdown recorded (Event 6008)",
+      "detail": "The previous system shutdown at 11:25:02 PM on ?7/?20/?2026 was unexpected.",
+      "when": "2026-07-21T07:00:41.9352113+02:00",
+      "action": "Pair with Kernel-Power 41: BSOD vs power-loss vs hung dump.",
+      "evidence": [
+        "The previous system shutdown at 11:25:02 PM on ?7/?20/?2026 was unexpected."
+      ],
+      "source": "collector"
+    },
+    {
+      "severity": "WARNING",
+      "area": "Crash",
+      "title": "BSOD recorded but no minidump in scan window",
+      "detail": "Matches volmgr 161 / hung dump \u2014 you may have had to pull the plug.",
+      "when": null,
+      "action": "Fix storage path used for dumps; ensure pagefile on healthy volume.",
+      "evidence": [],
+      "source": "collector"
+    },
+    {
+      "severity": "WARNING",
+      "area": "GPU",
+      "title": "LiveKernel / GPU live dump signal (30 hit(s))",
+      "detail": "Sources include: wevtutil:Application (de-prioritized: real BSOD present)",
+      "when": null,
+      "action": "Clean-install GPU drivers (DDU); check WATCHDOG dumps.",
+      "evidence": [
+        "Event Name: LiveKernelEvent",
+        "Event Name: LiveKernelEvent",
+        "Event Name: LiveKernelEvent",
+        "Event Name: LiveKernelEvent",
+        "Event Name: LiveKernelEvent"
+      ],
+      "source": "rules"
+    },
+    {
+      "severity": "WARNING",
+      "area": "GPU",
+      "title": "LiveKernelEvent 193 (VIDEO_DXGKRNL_LIVEDUMP) x54",
+      "detail": "Graphics kernel live dump signal (often Param 80e). Not a fatal BSOD by itself.",
+      "when": null,
+      "action": "DDU + GPU driver; free C: space; update/quit Sunshine overlays.",
+      "evidence": [],
+      "source": "collector"
+    },
+    {
+      "severity": "WARNING",
+      "area": "TIMEOUT",
+      "title": "Timeout language in logs (2 hit(s))",
+      "detail": "Sources include: wevtutil:Application, wevtutil:System",
+      "when": null,
+      "action": "Correlate with the failing service or device around the timestamp.",
+      "evidence": [
+        "Name resolution for the name community-api.coinmetrics.io timed out after none of the configured DNS servers responded. Client PID 44012.\u0000",
+        "The VSS service is shutting down due to idle timeout. \u0000"
+      ],
+      "source": "rules"
+    }
+  ],
+  "log_hits": [
+    {
+      "path": "System:6008",
+      "line_no": 0,
+      "line": "The previous system shutdown at 11:25:02 PM on ?7/?20/?2026 was unexpected.",
+      "pattern": "6008",
+      "category": "power",
+      "severity": "CRITICAL",
+      "when": "2026-07-21T07:00:41.9352113+02:00"
+    },
+    {
+      "path": "wevtutil:System",
+      "line_no": 2821,
+      "line": "Name resolution for the name community-api.coinmetrics.io timed out after none of the configured DNS servers responded. Client PID 44012.\u0000",
+      "pattern": "\\b(timeout|timed out)\\b",
+      "category": "timeout",
+      "severity": "WARNING",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 190,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 235,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 283,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 763,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 811,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 1742,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 1787,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 1835,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 2315,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 2363,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 3184,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 3229,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 3277,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 3757,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 3805,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 4155,
+      "line": "The VSS service is shutting down due to idle timeout. \u0000",
+      "pattern": "\\b(timeout|timed out)\\b",
+      "category": "timeout",
+      "severity": "WARNING",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 4510,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 4555,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 4603,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5098,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5146,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5242,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5287,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5335,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5815,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 5863,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 6205,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 6250,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 6298,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 6887,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    },
+    {
+      "path": "wevtutil:Application",
+      "line_no": 6935,
+      "line": "Event Name: LiveKernelEvent",
+      "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193",
+      "category": "gpu",
+      "severity": "CRITICAL",
+      "when": null
+    }
+  ],
+  "root_cause": "Matches known Incident #4 (BSOD 0x3B IN_PAGE_ERROR + hung dump (pull plug)). STORAGE/PAGEFILE PATH: BSOD occurred and Windows could not write the crash dump (volmgr 161) \u2014 this is why the machine froze until you pulled the power. STATUS_IN_PAGE_ERROR / store exceptions mean a page could not be read from disk. Back up; check NVMe health/firmware; ensure pagefile sits on a healthy volume with free space; test RAM. CONTRIBUTING: prior GPU LiveKernel/TDR noise \u2014 secondary to the BSOD unless dumps implicate the GPU driver. CONTRIBUTING: critically low free space \u2014 free space before chasing subtler bugs.",
+  "actions": [
+    "Free substantial space on C: / pagefile volume",
+    "NVMe health + firmware; reseat SSD if needed",
+    "MemTest86 (in-page can also be RAM)",
+    "Ensure dumps can write to a healthy volume",
+    "Free substantial space on this volume.",
+    "Pair with Kernel-Power 41: BSOD vs power-loss vs hung dump.",
+    "STATUS_IN_PAGE_ERROR / store failure \u2014 back up; check NVMe/SATA health & cables; test RAM (MemTest86); free space on pagefile volume.",
+    "Dump write failed \u2014 often why a BSOD freezes until you pull the plug. Disk/pagefile path was unresponsive; check storage health.",
+    "DDU + GPU driver; free C: space; update/quit Sunshine overlays.",
+    "Fix storage path used for dumps; ensure pagefile on healthy volume.",
+    "Clean-install GPU drivers (DDU); check WATCHDOG dumps.",
+    "Correlate with the failing service or device around the timestamp."
+  ],
+  "llm_summary": "",
+  "llm_used": false,
+  "browser_events": [
+    {
+      "t": "2026-07-21T07:00:41.9352113+02:00",
+      "l": "CRITICAL",
+      "i": 0,
+      "p": "power",
+      "c": "System:6008",
+      "m": "The previous system shutdown at 11:25:02 PM on ?7/?20/?2026 was unexpected.",
+      "d": {
+        "pattern": "6008"
+      }
+    },
+    {
+      "t": "",
+      "l": "WARNING",
+      "i": 2821,
+      "p": "timeout",
+      "c": "wevtutil:System",
+      "m": "Name resolution for the name community-api.coinmetrics.io timed out after none of the configured DNS servers responded. Client PID 44012.\u0000",
+      "d": {
+        "pattern": "\\b(timeout|timed out)\\b"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 190,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 235,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 283,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 763,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 811,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 1742,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 1787,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 1835,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 2315,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 2363,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 3184,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 3229,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 3277,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 3757,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 3805,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "WARNING",
+      "i": 4155,
+      "p": "timeout",
+      "c": "wevtutil:Application",
+      "m": "The VSS service is shutting down due to idle timeout. \u0000",
+      "d": {
+        "pattern": "\\b(timeout|timed out)\\b"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 4510,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 4555,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 4603,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5098,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5146,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5242,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5287,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5335,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5815,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 5863,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 6205,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 6250,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 6298,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 6887,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    },
+    {
+      "t": "",
+      "l": "CRITICAL",
+      "i": 6935,
+      "p": "gpu",
+      "c": "wevtutil:Application",
+      "m": "Event Name: LiveKernelEvent",
+      "d": {
+        "pattern": "LiveKernelEvent|VIDEO_DXGKRNL_LIVEDUMP|Code:\\s*193"
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "days": 2,
+  "start": null,
+  "end": null,
+  "levels": [],
+  "event_ids": [
+    6005,
+    6006,
+    6008,
+    1074,
+    41
+  ],
+  "exclude_event_ids": [],
+  "providers": [
+    "EventLog",
+    "Microsoft-Windows-Kernel-Power",
+    "User32"
+  ],
+  "exclude_providers": [],
+  "channels": [
+    "System"
+  ],
+  "exclude_channels": [],
+  "message_contains": "",
+  "user_contains": "",
+  "all_channels": false,
+  "max_events": 200,
+  "preset": "BootShutdown"
+}

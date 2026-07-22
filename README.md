@@ -65,6 +65,8 @@ Requires **Python 3.10+**. Core diagnosis uses the **stdlib only** (see `require
 | [docs/LOG_ANALYSIS.md](docs/LOG_ANALYSIS.md) | Rules, unseen scenarios, extending patterns |
 | [docs/LLM_LM_STUDIO.md](docs/LLM_LM_STUDIO.md) | Optional local LLM setup |
 | [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md) | Full CLI flags |
+| [docs/EVENT_VIEWER.md](docs/EVENT_VIEWER.md) | FullEventLogView-class Event Viewer feature matrix |
+| [docs/INCIDENT_PROFILES.md](docs/INCIDENT_PROFILES.md) | Incidents #1–#4 encoded as matchable script profiles |
 | [STOPCODES.md](STOPCODES.md) | BSOD / LiveKernel codes |
 | [INCIDENTS.md](INCIDENTS.md) | Real diagnosed cases |
 | [CONTEXT.md](CONTEXT.md) | Session / machine notes |

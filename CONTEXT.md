@@ -1,22 +1,26 @@
 # Crash-Tshoot session context
 
-## Product shape (2026-07-16+)
+## Product
+- v1 PowerShell Event Viewer engine
+- v2 Python cross-platform app (rules-first; optional LM Studio)
 
-- **v1:** PowerShell `SystemDiagnoser.ps1` — Windows Event Viewer + crash diagnoser
-- **v2:** Python `crash_tshoot` — Windows + Linux + offline logs + optional LM Studio
+## Machine
+DESKTOP-72P233G — ASUS, RTX 4060, Win11 26200, 3x Samsung 990 PRO
 
-## Machine (authoring host)
+## Incidents (see INCIDENTS.md)
+1. Storage 0x154 + phantom SATA + volmgr 161 hang
+2. Remote power-loss BugcheckCode=0
+3. LiveKernel 193 / 80e (GPU live dump)
+4. **2026-07-20 23:25** — BSOD 0x3B + Param1 0xC0000006 + volmgr 161; pull-plug
 
-DESKTOP-72P233G — ASUS, RTX 4060, Win11 26200, Samsung 990 PRO NVMe
+## Encoded in scripts (2026-07-21)
+- `crash_tshoot/incidents.py` — match Incidents #1–#4, cite in root cause + HTML
+- `SystemDiagnoser.ps1` — `Get-MatchedIncidents` mirror
+- Docs: `docs/INCIDENT_PROFILES.md`
 
-## Driving incident
-
-LiveKernelEvent **193** / Param **80e** / WATCHDOG dump — GPU live dump, not fatal BSOD;
-correlated with C: ~1% free and sunshine.exe crashes. See INCIDENTS #3.
-
-## How to run
-
-- Windows app: `Run-Python-Diagnoser.bat` or `python run_diagnoser.py`
-- With LLM: add `--llm` (LM Studio server on :1234)
-- Linux: `./run-diagnoser.sh`
-- Docs: `docs/`
+## Event Viewer upgrade (studied FullEventLogView + Event Log Explorer)
+- Python `crash_tshoot/event_viewer.py` + `--event-viewer` CLI
+- Extra presets: Defender, Network, DiskIO, HyperV, Setup, WindowsUpdate
+- Exclude filters, save/load filter JSON, watch/auto-refresh
+- Exports: Csv, Tsv, Txt, Json, Xml, RawXml, Html (bookmarks + String columns)
+- Docs: `docs/EVENT_VIEWER.md`

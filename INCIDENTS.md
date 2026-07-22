@@ -136,6 +136,43 @@ promoted to WARNING when Sunshine correlates, root cause line prioritizes
 
 ---
 
+## Incident #4 — Local PC `DESKTOP-72P233G`: freeze overnight, pull plug to reboot
+
+- **Date:** night of 2026-07-20 ~23:25 → rebooted 2026-07-21 07:00
+- **Machine:** same ASUS / RTX 4060 / 990 PRO NVMe host
+- **Symptom:** System locked hard; user **pulled the power cable** to reboot in the morning.
+
+### Root cause
+**BSOD `0x3B SYSTEM_SERVICE_EXCEPTION`** with **Param1 = `0xC0000006` (`STATUS_IN_PAGE_ERROR`)**,
+then **`volmgr 161` dump write failed** (`BugCheckProgress 0x00040049`). Windows tried to
+bugcheck, could not write the dump (disk/pagefile path unresponsive), and **froze on the
+BSOD** — same hang-until-power-pull pattern as Incident #1.
+
+This was **not** a clean power cut (`BugcheckCode` was non-zero; `PowerButtonTimestamp=0`).
+
+### Evidence
+| Time | Event | Meaning |
+|------|-------|---------|
+| 7/20 23:25:02 | EventLog `6008` | Unexpected shutdown at that wall-clock time |
+| 7/21 07:00:34 | Kernel-Power `41` | `BugcheckCode=59` (`0x3B`), Param1=`0xC0000006`, FromEFI=true |
+| 7/21 07:00:34 | `volmgr 161` | Dump creation failed — why the box sat frozen |
+| — | No new minidump | Dump never completed |
+| SMART | 3× 990 PRO Healthy | Not a trivial SMART fail; still treat as storage/pagefile/RAM risk |
+
+### Why v2 Python scripts initially missed it
+They scanned `wevtutil` **text** and LiveKernel noise, but did **not** parse structured
+Kernel-Power 41 / 6008 / volmgr 161. Heuristics then blamed GPU/thermal. Fixed by adding
+`collect_structured_crash_events()` in `crash_tshoot/collectors/windows.py`.
+
+### Resolution path
+1. Free space on **C:** (still critically low).
+2. Confirm pagefile is on a healthy volume with headroom.
+3. NVMe firmware + Samsung Magician / `smartctl` long test; reseat NVMe if needed.
+4. MemTest86 pass (in-page errors can also be RAM).
+5. After next BSOD, if dump works, `!analyze -v` for the faulting module.
+
+---
+
 ## Method notes (how these were diagnosed)
 
 The repeatable process, now automated by [`SystemDiagnoser.ps1`](SystemDiagnoser.ps1):
@@ -150,11 +187,10 @@ The repeatable process, now automated by [`SystemDiagnoser.ps1`](SystemDiagnoser
 6. **WHEA-Logger** → did the hardware itself report a fatal error?
 7. **Correlate timeline** around the crash minute for the triggering events.
 
-### Two contrasting signatures, side by side
-| | Incident #1 (storage) | Incident #2 (power) | Incident #3 (GPU live dump) |
-|--|----------------------|---------------------|------------------------------|
-| Stop / code | `0x154` (non-zero) | `0` | LiveKernel **193** (not a BSOD) |
-| Dump written | No (`volmgr 161` failure) | No (none attempted) | WATCHDOG live dump |
-| `storahci` resets | Yes, recurring | No | No |
-| WHEA errors | No | No | No |
-| Verdict | Failing SATA disk | Abrupt power loss / thermal | dxgkrnl / GPU driver (+ low disk / Sunshine) |
+### Contrasting signatures
+| | #1 storage | #2 power | #3 GPU live | #4 BSOD hang |
+|--|------------|----------|-------------|--------------|
+| Stop / code | `0x154` | `0` | LiveKernel 193 | `0x3B` + `0xC0000006` |
+| Dump written | No (volmgr 161) | No | WATCHDOG | No (volmgr 161) |
+| User action | Force off | Came back | None (live) | Pull plug |
+| Verdict | Failing SATA | Power/thermal | dxgkrnl | In-page/storage path + hung dump |

@@ -62,7 +62,20 @@ def _render_html(result: DiagnosisResult) -> str:
     if result.llm_used and result.llm_summary:
         llm_block = f"<div class='llm'><h2>LM Studio advisory</h2><pre>{_esc(result.llm_summary)}</pre></div>"
 
-    snap = " · ".join(f"{_esc(k)}={_esc(str(v))[:80]}" for k, v in list(result.snapshot.items())[:8])
+    incidents = result.snapshot.get("matched_incidents") or []
+    inc_html = ""
+    if incidents:
+        cards = []
+        for m in incidents:
+            steps = "".join(f"<li>{_esc(s)}</li>" for s in (m.get("resolution") or [])[:5])
+            cards.append(
+                f"<div class='inc'><b>Incident #{_esc(str(m.get('id')))}: {_esc(m.get('name',''))}</b> "
+                f"(score {m.get('score')})<br>{_esc(m.get('why',''))}<br>"
+                f"<i>{_esc(m.get('summary',''))}</i><ul>{steps}</ul></div>"
+            )
+        inc_html = "<div class='incwrap'><h2>Matched historical incidents</h2>" + "".join(cards) + "</div>"
+
+    snap = " · ".join(f"{_esc(k)}={_esc(str(v))[:80]}" for k, v in list(result.snapshot.items())[:8] if k != "matched_incidents")
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Crash-Tshoot { _esc(result.hostname) }</title>
@@ -74,6 +87,8 @@ header{{background:#0a5;color:#fff;padding:20px 28px}}
 .actions{{background:#eef8ff;padding:14px;border-left:4px solid #08c}}
 .llm{{background:#1e1e2e;color:#cdd6f4;padding:16px;border-radius:8px;margin:16px 0}}
 .llm pre{{white-space:pre-wrap;font-size:.9rem}}
+.incwrap{{margin:16px 0}}
+.inc{{background:#fff8e6;border-left:4px solid #c90;padding:12px 14px;margin:10px 0;border-radius:4px}}
 table{{border-collapse:collapse;width:100%;background:#fff}}
 th,td{{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top;font-size:.9rem}}
 th{{background:#0a5;color:#fff}}
@@ -91,6 +106,7 @@ th{{background:#0a5;color:#fff}}
 </header>
 <div class="wrap">
   <div class="rc"><b>Most likely root cause (application rules):</b><br>{_esc(result.root_cause)}</div>
+  {inc_html}
   <div class="actions"><b>Actions</b><ul>{actions or "<li>None</li>"}</ul></div>
   {llm_block}
   <div class="tabs">

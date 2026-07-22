@@ -45,6 +45,20 @@
     Cap for event browser / full scan (default 5000).
 .PARAMETER EventViewerMode
     Shortcut: FullEventScan + CriticalErrors preset + Csv,Json export.
+.PARAMETER ExcludeEventId
+    Comma-separated Event IDs to exclude.
+.PARAMETER ExcludeProvider
+    Provider exclude (wildcard * supported).
+.PARAMETER ExcludeChannel
+    Channel exclude (wildcard * supported).
+.PARAMETER SaveFilter
+    Save current filter settings to a JSON file.
+.PARAMETER LoadFilter
+    Load filter settings from a JSON file.
+.PARAMETER WatchSeconds
+    Auto-refresh console watch interval (0=off). FullEventLogView-style smooth refresh.
+.PARAMETER WatchRounds
+    Number of watch iterations (default 12).
 #>
 [CmdletBinding()]
 param(
@@ -56,8 +70,11 @@ param(
     [string]$Preset = 'Diagnose',
     [string[]]$Level = @(),
     [string]$EventId = '',
+    [string]$ExcludeEventId = '',
     [string]$Provider = '',
+    [string]$ExcludeProvider = '',
     [string]$Channel = '',
+    [string]$ExcludeChannel = '',
     [string]$MessageContains = '',
     [datetime]$StartTime,
     [datetime]$EndTime,
@@ -66,7 +83,11 @@ param(
     [string]$Export = 'Json',
     [switch]$ExportEvtx,
     [int]$MaxEvents = 5000,
-    [switch]$EventViewerMode
+    [switch]$EventViewerMode,
+    [string]$SaveFilter = '',
+    [string]$LoadFilter = '',
+    [int]$WatchSeconds = 0,
+    [int]$WatchRounds = 12
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -265,6 +286,24 @@ function Get-PresetSpec([string]$name) {
         'AllWarningsPlus' {
             @{ Levels = @(1,2,3); EventIds = @(); Providers = @(); Channels = @(); AllChannels = $true }
         }
+        'WindowsUpdate' {
+            @{ Levels = @(1,2,3); EventIds = @(); Providers = @('Microsoft-Windows-WindowsUpdateClient','Microsoft-Windows-Setup'); Channels = @('System','Setup'); AllChannels = $false }
+        }
+        'Defender' {
+            @{ Levels = @(1,2,3); EventIds = @(); Providers = @(); Channels = @('Microsoft-Windows-Windows Defender/Operational'); AllChannels = $false }
+        }
+        'Network' {
+            @{ Levels = @(1,2,3); EventIds = @(); Providers = @('Tcpip','Microsoft-Windows-NDIS','Microsoft-Windows-NetworkProfile'); Channels = @('System'); AllChannels = $false }
+        }
+        'DiskIO' {
+            @{ Levels = @(); EventIds = @(7,51,55,98,129,153,161); Providers = @('disk','Ntfs','storahci','stornvme','volmgr'); Channels = @('System'); AllChannels = $false }
+        }
+        'HyperV' {
+            @{ Levels = @(1,2,3); EventIds = @(); Providers = @('Microsoft-Windows-Hyper-V'); Channels = @('System'); AllChannels = $false }
+        }
+        'Setup' {
+            @{ Levels = @(1,2,3); EventIds = @(); Providers = @(); Channels = @('Setup'); AllChannels = $false }
+        }
         default { $null }
     }
 }
@@ -318,6 +357,11 @@ function Invoke-EventQuery {
     if ($ChannelWild) {
         $targetChannels = @($targetChannels | Where-Object { Test-WildcardMatch $_ $ChannelWild })
     }
+    if ($ExcludeChannel) {
+        $targetChannels = @($targetChannels | Where-Object {
+            -not (Test-WildcardMatch $_ $ExcludeChannel) -and ($_ -notlike "*$ExcludeChannel*")
+        })
+    }
 
     foreach ($ch in $targetChannels) {
         if ($collected.Count -ge $Cap) { break }
@@ -344,8 +388,13 @@ function Invoke-EventQuery {
                 if (-not $ok) { continue }
             }
             if ($ProviderWild -and -not (Test-WildcardMatch $e.ProviderName $ProviderWild)) { continue }
+            if ($ExcludeProvider -and (Test-WildcardMatch $e.ProviderName $ExcludeProvider -or $e.ProviderName -like "*$ExcludeProvider*")) { continue }
             $obj = ConvertTo-EventObj $e
             if ($MsgFilter -and ($obj.Message -notmatch [regex]::Escape($MsgFilter))) { continue }
+            if ($ExcludeEventId) {
+                $exIds = @($ExcludeEventId -split ',' | ForEach-Object { [int]$_.Trim() } | Where-Object { $_ -gt 0 })
+                if ($exIds -contains [int]$e.Id) { continue }
+            }
             $collected.Add($obj)
             if ($collected.Count -ge $Cap) { break }
         }
@@ -586,8 +635,22 @@ function Invoke-LocalDiagnosis {
                 $info = $BugCheckMap[[int]$bc]
                 $name = if ($info) { $info[0] } else { 'UNKNOWN_BUGCHECK' }
                 $hint = if ($info) { $info[1] } else { 'Unrecognized stop code - search online.' }
-                Write-Host ("  [BSOD] {0}  stop {1} {2}" -f $e.TimeCreated, $hex, $name) -ForegroundColor Red
-                Add-Finding CRITICAL 'Crash' "Blue screen: $name ($hex)" "At $($e.TimeCreated). $hint" $e.TimeCreated -Action 'Analyze minidump with BlueScreenView/WinDbg; update or roll back the faulting driver.'
+                $p1 = 0; [void][int64]::TryParse(($d['BugcheckParameter1'] -replace '^0x',''), [ref]$p1)
+                if ($p1 -eq 0 -and $d['BugcheckParameter1']) {
+                    try { $p1 = [Convert]::ToInt64(($d['BugcheckParameter1'] -replace '^0x',''), 16) } catch { $p1 = 0 }
+                }
+                $p1hex = ('0x{0:X}' -f $p1)
+                $extra = " Param1=$p1hex Param2=$($d['BugcheckParameter2']) Param3=$($d['BugcheckParameter3']) Param4=$($d['BugcheckParameter4'])."
+                if ($p1 -eq 0xC0000006) {
+                    $extra += ' Param1 decode: STATUS_IN_PAGE_ERROR - page could not be read from disk/pagefile (storage or RAM).'
+                    $hint = 'IN_PAGE_ERROR backing-store failure - check disk/pagefile/RAM (Incident #4).'
+                }
+                Write-Host ("  [BSOD] {0}  stop {1} {2} {3}" -f $e.TimeCreated, $hex, $name, $p1hex) -ForegroundColor Red
+                $act = 'Analyze minidump with BlueScreenView/WinDbg; update or roll back the faulting driver.'
+                if ($p1 -eq 0xC0000006 -or $bc -eq 0x154) {
+                    $act = 'Back up; check NVMe/SATA health; free pagefile volume space; MemTest86.'
+                }
+                Add-Finding CRITICAL 'Crash' "Blue screen: $name ($hex)" "At $($e.TimeCreated). $hint$extra" $e.TimeCreated -Action $act
                 $script:Counters.BugCheck++
             } elseif ($pwr -ne '0' -and $pwr) {
                 Write-Host ("  [POWER] {0}  power button held" -f $e.TimeCreated) -ForegroundColor Yellow
@@ -611,7 +674,10 @@ function Invoke-LocalDiagnosis {
     $e6008 = Get-EventsLocal @{LogName='System';Id=6008;StartTime=$since}
     if ($e6008) {
         Write-Host ("  {0} unexpected shutdown (6008) record(s)." -f $e6008.Count) -ForegroundColor Yellow
-        foreach ($e in $e6008) { Add-BrowserEvent (ConvertTo-EventObj $e) -AlsoTimeline }
+        foreach ($e in $e6008) {
+            Add-BrowserEvent (ConvertTo-EventObj $e) -AlsoTimeline
+            Add-Finding CRITICAL 'Power' 'Unexpected shutdown recorded (Event 6008)' (($e.Message -split "`n")[0]) $e.TimeCreated -Action 'Pair with Kernel-Power 41: BSOD vs power-loss vs hung dump.'
+        }
     }
 
     # --- 3. Dumps ---
@@ -894,39 +960,107 @@ function Compare-Trends {
     }
 }
 
-# ============================================================ ROOT CAUSE
+# ============================================================ INCIDENT PROFILES + ROOT CAUSE
+# Mirrors INCIDENTS.md #1-#4 and crash_tshoot/incidents.py
+function Get-MatchedIncidents {
+    $titles = (($script:Findings | ForEach-Object { "$($_.Title) $($_.Detail)" }) -join ' | ').ToLower()
+    $matched = New-Object System.Collections.Generic.List[object]
+
+    # #1 Failing SATA / hung BSOD
+    $s1 = 0; $r1 = @()
+    if ($titles -match 'phantom|0-byte') { $s1 += 40; $r1 += 'phantom/0-byte drive' }
+    if ($script:Counters.StorAhci129 -ge 1 -or $titles -match 'storahci 129|raidport') { $s1 += 30; $r1 += 'storahci 129' }
+    if ($titles -match '0x154|unexpected_store') { $s1 += 25; $r1 += 'BSOD 0x154' }
+    if ($titles -match 'volmgr 161|dump could not') { $s1 += 20; $r1 += 'volmgr 161' }
+    if ($s1 -ge 50) {
+        $matched.Add([pscustomobject]@{ Id='1'; Score=$s1; Name='Failing SATA/AHCI disk (hung BSOD)'; Why=($r1 -join '; ') })
+        Add-Finding CRITICAL 'Incident' "Matches Incident #1: Failing SATA/AHCI disk (hung BSOD) (score $s1)" ($r1 -join '; ') -Action 'Disable/unplug phantom SATA; reseat cable; replace drive.'
+    }
+
+    # #2 Power loss BugcheckCode=0
+    $hasBsod = [bool]($script:Findings | Where-Object { $_.Title -match 'Blue screen' })
+    $powerLoss = [bool]($script:Findings | Where-Object { $_.Title -match 'Abrupt power loss|hard lock' })
+    if ($powerLoss -and -not $hasBsod) {
+        $s2 = 70
+        if ($script:Counters.KP41 -ge 2) { $s2 += 15 }
+        $matched.Add([pscustomobject]@{ Id='2'; Score=$s2; Name='Abrupt power loss / hard lock (no BSOD)'; Why='Kernel-Power 41 BugcheckCode=0' })
+        Add-Finding CRITICAL 'Incident' "Matches Incident #2: Abrupt power loss / hard lock (score $s2)" 'No stop code recorded.' -Action 'Check PSU, cables, UPS, thermals.'
+    }
+
+    # #3 LiveKernel 193
+    $s3 = 0; $r3 = @()
+    if ($script:Counters.LiveKernel193 -ge 1 -or $titles -match 'livekernel|0x193|dxgkrnl') { $s3 += 45; $r3 += 'LiveKernel 193' }
+    if ($script:Counters.DisplayTDR -ge 1 -or $titles -match 'tdr|4101') { $s3 += 20; $r3 += 'Display TDR' }
+    if ($titles -match 'sunshine') { $s3 += 15; $r3 += 'Sunshine correlation' }
+    if ($hasBsod -and $s3 -ge 45) { $s3 = [Math]::Min($s3, 55); $r3 += 'secondary to BSOD' }
+    if ($s3 -ge 45) {
+        $sev = if ($s3 -ge 70 -and -not $hasBsod) { 'CRITICAL' } else { 'WARNING' }
+        $matched.Add([pscustomobject]@{ Id='3'; Score=$s3; Name='LiveKernelEvent 193 (GPU live dump)'; Why=($r3 -join '; ') })
+        Add-Finding $sev 'Incident' "Matches Incident #3: LiveKernelEvent 193 (GPU live dump) (score $s3)" ($r3 -join '; ') -Action 'DDU + GPU driver; free C:; update Sunshine.'
+    }
+
+    # #4 0x3B + IN_PAGE + hung dump
+    $s4 = 0; $r4 = @()
+    if ($titles -match '0x3b|system_service_exception') { $s4 += 35; $r4 += 'BSOD 0x3B' }
+    if ($titles -match '0xc0000006|in_page|in-page|status_in_page') { $s4 += 35; $r4 += 'STATUS_IN_PAGE_ERROR' }
+    if ($titles -match 'volmgr 161|dump could not') { $s4 += 25; $r4 += 'volmgr 161' }
+    if ($titles -match 'no minidump') { $s4 += 10; $r4 += 'no minidump' }
+    if ($s4 -ge 60) {
+        $matched.Add([pscustomobject]@{ Id='4'; Score=$s4; Name='BSOD 0x3B IN_PAGE_ERROR + hung dump (pull plug)'; Why=($r4 -join '; ') })
+        Add-Finding CRITICAL 'Incident' "Matches Incident #4: BSOD 0x3B IN_PAGE_ERROR + hung dump (score $s4)" ($r4 -join '; ') -Action 'Free C: space; NVMe health; MemTest86; fix dump volume.'
+    }
+
+    return @($matched | Sort-Object Score -Descending)
+}
+
 function Get-RootCause {
     $parts = New-Object System.Collections.Generic.List[string]
-    $titles = ($script:Findings | ForEach-Object { $_.Title }) -join ' | '
+    $titles = ($script:Findings | ForEach-Object { "$($_.Title) $($_.Detail)" }) -join ' | '
     $areas = $script:Findings | Where-Object { $_.Severity -in 'CRITICAL','WARNING' }
+    $script:MatchedIncidents = @(Get-MatchedIncidents)
 
-    if ($script:Findings | Where-Object { $_.Title -match 'Phantom|storahci|stornvme|UNEXPECTED_STORE|not healthy|dump could NOT' }) {
+    if ($titles -match 'volmgr 161|dump could not' -and $titles -match '0xc0000006|in_page|0x154|system_service_exception|unexpected_store') {
+        $parts.Add('STORAGE/PAGEFILE PATH: BSOD + dump write failed (volmgr 161) - machine freezes until power pull. Check disk/pagefile/RAM.')
+    }
+    elseif ($script:Findings | Where-Object { $_.Title -match 'Phantom|storahci|stornvme|UNEXPECTED_STORE|not healthy|dump could NOT' }) {
         $parts.Add('STORAGE: a drive is failing or disconnecting (cable/port/disk). Back up; reseat/replace cable; test SMART or replace the drive.')
     }
     if ($script:Findings | Where-Object { $_.Title -match 'WHEA' -and $_.Severity -eq 'CRITICAL' }) {
         $parts.Add('HARDWARE: machine-check errors. Test RAM (MemTest86), check CPU temps, review overclock.')
     }
-    if ($script:Findings | Where-Object { $_.Title -match 'Abrupt power loss|power button|thermal trip' }) {
-        $parts.Add('POWER/THERMAL: power loss or thermal trip with little/no bugcheck. Check PSU, cables, UPS, cooling.')
+    if (($script:Findings | Where-Object { $_.Title -match 'Abrupt power loss|hard lock' }) -and -not ($script:Findings | Where-Object { $_.Title -match 'Blue screen' })) {
+        $parts.Add('POWER/THERMAL: power loss or hard lock with no bugcheck. Check PSU, cables, UPS, cooling.')
     }
-    if ($script:Findings | Where-Object { $_.Title -match 'LiveKernel|TDR|VIDEO_|GPU|WATCHDOG|dxgkrnl' -or $_.Area -eq 'GPU' }) {
-        $parts.Add('GPU/DISPLAY: LiveKernel 193, TDR, or graphics dumps. Clean-install GPU drivers (DDU); check GPU power/thermals; update or quit streaming overlays (e.g. Sunshine).')
+    if ($script:Findings | Where-Object { $_.Title -match 'LiveKernel|TDR|VIDEO_|WATCHDOG|dxgkrnl' -or $_.Area -eq 'GPU' }) {
+        if ($script:Findings | Where-Object { $_.Title -match 'Blue screen' }) {
+            $parts.Add('CONTRIBUTING: GPU LiveKernel/TDR noise - secondary unless dump implicates GPU driver.')
+        } else {
+            $parts.Add('GPU/DISPLAY: LiveKernel 193, TDR, or graphics dumps. Clean-install GPU drivers (DDU); check GPU power/thermals; update or quit streaming overlays (e.g. Sunshine).')
+        }
     }
-    if ($script:Findings | Where-Object { $_.Title -match 'Blue screen|Bugcheck' }) {
+    if (($script:Findings | Where-Object { $_.Title -match 'Blue screen|Bugcheck' }) -and -not ($parts | Where-Object { $_ -match 'STORAGE/PAGEFILE' })) {
         $parts.Add('DRIVER/SOFTWARE: BSOD stop code recorded. Analyze the minidump for the faulting driver.')
     }
     if ($script:Findings | Where-Object { $_.Title -match 'Low disk space' }) {
         $parts.Add('CONTRIBUTING: C: critically low on free space - free space before chasing subtler bugs.')
     }
 
-    if ($parts.Count -eq 0) {
+    $body = if ($parts.Count -eq 0) {
         if ($areas.Count -gt 0) {
             $top = $areas | Select-Object -First 1
-            return "Primary signal: [$($top.Severity)] $($top.Area) - $($top.Title). Review WARNING/CRITICAL findings below."
+            "Primary signal: [$($top.Severity)] $($top.Area) - $($top.Title). Review WARNING/CRITICAL findings below."
+        } else {
+            'No dominant crash signature in the scan window. System looks healthy (or issues are informational only).'
         }
-        return 'No dominant crash signature in the scan window. System looks healthy (or issues are informational only).'
+    } else {
+        ($parts -join ' ')
     }
-    return ($parts -join ' ')
+
+    if ($script:MatchedIncidents -and $script:MatchedIncidents.Count -gt 0) {
+        $p = $script:MatchedIncidents[0]
+        return "Matches known Incident #$($p.Id) ($($p.Name)). $body"
+    }
+    return $body
 }
 
 function Get-ActionList {
@@ -996,6 +1130,29 @@ function Export-MatchedEvents {
         Set-Content -Path $p -Value $sb.ToString() -Encoding UTF8
         $paths += $p
     }
+    if ($formats | Where-Object { $_ -match '^(?i)tsv$|^(?i)tab$' }) {
+        $p = "$base.tsv"
+        $rows | Export-Csv -Path $p -NoTypeInformation -Encoding UTF8 -Delimiter "`t"
+        $paths += $p
+    }
+    if ($formats | Where-Object { $_ -match '^(?i)txt$|^(?i)text$' }) {
+        $p = "$base.txt"
+        $rows | ForEach-Object { "$($_.TimeCreated)`t$($_.Level)`t$($_.Id)`t$($_.Provider)`t$($_.Channel)`t$($_.Message)" } |
+            Set-Content -Path $p -Encoding UTF8
+        $paths += $p
+    }
+    if ($formats | Where-Object { $_ -match '^(?i)rawxml$|^(?i)srawxml$' }) {
+        $p = "$base.raw.xml"
+        $x = New-Object System.Text.StringBuilder
+        [void]$x.Append('<?xml version="1.0" encoding="utf-8"?><Events>')
+        foreach ($evt in $ev) {
+            $msg = Escape-Html (($evt.Message -replace '[\r\n]+',' '))
+            [void]$x.Append("<Event><System><Provider Name=`"$(Escape-Html $evt.Provider)`"/><EventID>$($evt.Id)</EventID><Level>$($evt.LevelRaw)</Level><Channel>$(Escape-Html $evt.Channel)</Channel><TimeCreated SystemTime=`"$($evt.TimeCreated.ToString('o'))`"/></System><RenderingInfo><Message>$msg</Message></RenderingInfo></Event>")
+        }
+        [void]$x.Append('</Events>')
+        Set-Content -Path $p -Value $x.ToString() -Encoding UTF8
+        $paths += $p
+    }
     if ($ExportEvtx) {
         $evtxOut = "$base.System.evtx"
         try {
@@ -1016,6 +1173,7 @@ function Save-DiagnosisJson {
         Counters     = $script:Counters
         Snapshot     = $script:Snapshot
         RootCause    = $RootCause
+        MatchedIncidents = @($script:MatchedIncidents)
         Findings     = @($script:Findings)
     }
     $obj | ConvertTo-Json -Depth 8 | Set-Content -Path $Path -Encoding UTF8
@@ -1234,6 +1392,64 @@ if (-not $isAdmin) {
     Write-Host "  NOTE: Not Administrator - SMART/Security log/dump checks may be limited." -ForegroundColor Yellow
 }
 
+# Load saved filter config (FullEventLogView /cfg parity)
+if ($LoadFilter -and (Test-Path $LoadFilter)) {
+    try {
+        $cfg = Get-Content $LoadFilter -Raw | ConvertFrom-Json
+        if ($cfg.Days) { $Days = [int]$cfg.Days }
+        if ($cfg.Preset) { $Preset = [string]$cfg.Preset }
+        if ($cfg.EventId) { $EventId = [string]$cfg.EventId }
+        if ($cfg.ExcludeEventId) { $ExcludeEventId = [string]$cfg.ExcludeEventId }
+        if ($cfg.Provider) { $Provider = [string]$cfg.Provider }
+        if ($cfg.ExcludeProvider) { $ExcludeProvider = [string]$cfg.ExcludeProvider }
+        if ($cfg.Channel) { $Channel = [string]$cfg.Channel }
+        if ($cfg.ExcludeChannel) { $ExcludeChannel = [string]$cfg.ExcludeChannel }
+        if ($cfg.MessageContains) { $MessageContains = [string]$cfg.MessageContains }
+        if ($cfg.Export) { $Export = [string]$cfg.Export }
+        if ($cfg.FullEventScan) { $FullEventScan = [bool]$cfg.FullEventScan }
+        if ($cfg.MaxEvents) { $MaxEvents = [int]$cfg.MaxEvents }
+        Write-Host "  Loaded filter: $LoadFilter" -ForegroundColor Cyan
+        $Window = Get-TimeWindow
+    } catch {
+        Write-Host "  Failed to load filter: $_" -ForegroundColor Yellow
+    }
+}
+if ($SaveFilter) {
+    $cfgObj = [pscustomobject]@{
+        Days=$Days; Preset=$Preset; EventId=$EventId; ExcludeEventId=$ExcludeEventId
+        Provider=$Provider; ExcludeProvider=$ExcludeProvider; Channel=$Channel; ExcludeChannel=$ExcludeChannel
+        MessageContains=$MessageContains; Export=$Export; FullEventScan=[bool]$FullEventScan; MaxEvents=$MaxEvents
+    }
+    $cfgObj | ConvertTo-Json | Set-Content -Path $SaveFilter -Encoding UTF8
+    Write-Host "  Saved filter: $SaveFilter" -ForegroundColor Cyan
+}
+
+# Watch / Auto Refresh mode (exit after rounds)
+if ($WatchSeconds -gt 0) {
+    Write-Head "Event Watch (every ${WatchSeconds}s, $WatchRounds rounds)"
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    for ($round = 1; $round -le $WatchRounds; $round++) {
+        $Window = Get-TimeWindow
+        $before = $script:BrowserEvents.Count
+        Apply-CliEventFilters -Window $Window | Out-Null
+        $newOnes = @($script:BrowserEvents | Select-Object -Skip $before)
+        foreach ($n in $newOnes) {
+            $k = "$($n.TimeCreated)|$($n.Id)|$($n.Provider)|$($n.Channel)"
+            if ($seen.Add($k)) {
+                Write-Host ("  + {0} [{1}] Id={2} {3}: {4}" -f $n.TimeCreated, $n.Level, $n.Id, $n.Provider, (($n.Message -split "`n")[0].Substring(0, [Math]::Min(120, (($n.Message -split "`n")[0]).Length)))) -ForegroundColor Yellow
+            }
+        }
+        if ($newOnes.Count -eq 0) { Write-Host "  (no new events)" -ForegroundColor DarkGray }
+        if ($round -lt $WatchRounds) { Start-Sleep -Seconds $WatchSeconds }
+    }
+    Write-Host '  Watch complete.' -ForegroundColor Cyan
+    if ($host.Name -eq 'ConsoleHost' -and -not $env:CI -and [Environment]::UserInteractive) {
+        Write-Host '  Press any key to close...' -ForegroundColor DarkGray
+        try { $null = $host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch {}
+    }
+    return
+}
+
 # Offline EVTX first if requested
 if ($EvtxPath -or $LogFolder) {
     Import-OfflineEvtx -Window $Window | Out-Null
@@ -1271,7 +1487,8 @@ if ($ComputerName) {
 
 Compare-Trends
 
-# Summary
+# Summary (match incidents first so findings include Incident #N rows)
+$rootCause = Get-RootCause
 Write-Head 'DIAGNOSIS SUMMARY'
 $order = @{ 'CRITICAL'=0; 'WARNING'=1; 'INFO'=2; 'OK'=3 }
 $ranked = @($script:Findings | Sort-Object { $order[$_.Severity] }, { if ($_.When) { - $_.When.Ticks } else { 0 } })
@@ -1288,10 +1505,15 @@ foreach ($f in $ranked | Where-Object Severity -in 'CRITICAL','WARNING') {
     if ($f.Detail) { Write-Host ("             -> {0}" -f $f.Detail) -ForegroundColor DarkGray }
 }
 
-$rootCause = Get-RootCause
 Write-Host ''
 Write-Host '  MOST LIKELY ROOT CAUSE:' -ForegroundColor Magenta
 Write-Host "    $rootCause" -ForegroundColor White
+if ($script:MatchedIncidents -and $script:MatchedIncidents.Count -gt 0) {
+    Write-Host '  MATCHED INCIDENTS:' -ForegroundColor Magenta
+    foreach ($m in $script:MatchedIncidents) {
+        Write-Host ("    #{0} {1} (score {2}): {3}" -f $m.Id, $m.Name, $m.Score, $m.Why) -ForegroundColor White
+    }
+}
 
 $agg = Get-EventAggregates
 
