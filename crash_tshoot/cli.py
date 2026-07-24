@@ -17,7 +17,7 @@ from .root_cause import finalize
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="crash-tshoot",
-        description="Crash diagnoser + advanced Event Viewer (FullEventLogView-class).",
+        description="Cross-platform crash diagnoser + Event Viewer (Windows, Linux, macOS, BSD).",
     )
     p.add_argument("--days", type=int, default=7, help="History window in days (default 7)")
     p.add_argument("--log", action="append", default=[], help="Extra log file (repeatable)")
@@ -35,7 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--event-viewer", action="store_true", help="Advanced Event Viewer mode")
     p.add_argument("--preset", default="", help="EV preset: CriticalErrors, BootShutdown, Storage, GPUDisplay, ...")
     p.add_argument("--list-presets", action="store_true", help="List Event Viewer presets and exit")
-    p.add_argument("--list-channels", action="store_true", help="List Windows event channels and exit")
+    p.add_argument(
+        "--list-channels",
+        action="store_true",
+        help="List log sources (Windows channels / journal units / macOS subsystems / BSD dmesg)",
+    )
     p.add_argument("--event-id", default="", help="Comma-separated Event IDs")
     p.add_argument("--exclude-event-id", default="", help="Comma-separated Event IDs to exclude")
     p.add_argument("--level", default="", help="Comma levels: Critical,Error,Warning,Information,Verbose or 1-5")
@@ -46,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--message-contains", default="", help="Full-text message filter")
     p.add_argument("--user-contains", default="", help="Filter by user string in EventData/message")
     p.add_argument("--full-scan", action="store_true", help="Scan all enabled channels (Critical/Error unless levels set)")
-    p.add_argument("--evtx", default="", help="Single offline .evtx file")
+    p.add_argument("--evtx", default="", help="Offline .evtx (Windows) or pass a text log path")
     p.add_argument("--max-events", type=int, default=5000, help="Cap events (default 5000)")
     p.add_argument(
         "--export",
@@ -147,10 +151,12 @@ def run_event_viewer(args: argparse.Namespace) -> int:
     events: list = []
     if args.evtx or args.log_folder:
         path = args.evtx or args.log_folder
-        print(f"Loading EVTX from {path}...")
+        print(f"Loading offline logs from {path}...")
         events = load_evtx_folder(path, filt)
     else:
-        print("Querying live Windows event logs...")
+        from .collectors.base import detect_platform
+
+        print(f"Querying live event logs ({detect_platform()})...")
         events = query_events(filt)
 
     print(f"Matched {len(events)} event(s).")

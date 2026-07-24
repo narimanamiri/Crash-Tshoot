@@ -44,6 +44,23 @@ LINUX_PATTERNS: list[PatternRule] = [
      "service", Severity.WARNING, "Service / core dump signal", "journalctl -xe for unit; inspect coredumpctl."),
 ]
 
+MACOS_PATTERNS: list[PatternRule] = [
+    (re.compile(r"panic\(|Kernel trap|Debugger CPU|Machine Check|SMC panic", re.I),
+     "crash", Severity.CRITICAL, "macOS kernel panic signal", "Check DiagnosticReports .panic; note GPU/IOKit culprit."),
+    (re.compile(r"watchdog|userspace watchdog|Previous shutdown cause", re.I),
+     "hang", Severity.CRITICAL, "Watchdog / unexpected shutdown cause", "Check Console.app + pmset -g log; thermals/PSU."),
+    (re.compile(r"disk\d+s\d+|I/O error|medium error|SMART|NVMe.*error|Failed to eject", re.I),
+     "storage", Severity.CRITICAL, "Disk / NVMe I/O signal", "Run Disk Utility First Aid; back up; replace drive."),
+    (re.compile(r"GPU Reset|IOAccelerator|Metal.*error|AMDRadeon|NVDA", re.I),
+     "gpu", Severity.WARNING, "GPU / graphics fault signal", "Update macOS; check thermals; external GPU."),
+    (re.compile(r"thermal( level| pressure| warning)|CPU_Scheduler|overtemp", re.I),
+     "thermal", Severity.WARNING, "Thermal pressure signal", "Clean vents; check fans; reduce load."),
+    (re.compile(r"jetsam|memorystatus|low memory|EXC_RESOURCE", re.I),
+     "memory", Severity.WARNING, "Memory pressure / jetsam", "Close heavy apps; check memory leaks."),
+    (re.compile(r"Code Signature|AMFI|EXC_BAD_ACCESS|Segmentation fault", re.I),
+     "crash", Severity.WARNING, "Process crash / bad access", "Update the app; check crash report in Console."),
+]
+
 # Generic “unseen scenario” catch-alls — broad but scored lower unless clustered
 GENERIC_PATTERNS: list[PatternRule] = [
     (re.compile(r"\b(panic|BUG:|Oops:|fatal error|FATAL|assertion failed|stack smashing)\b", re.I),
@@ -69,6 +86,10 @@ def all_rules(platform: str) -> list[PatternRule]:
         rules = WINDOWS_PATTERNS + rules
     elif platform == "linux":
         rules = LINUX_PATTERNS + rules
+    elif platform == "macos":
+        rules = MACOS_PATTERNS + rules
+    elif platform == "bsd":
+        rules = LINUX_PATTERNS + rules
     else:
-        rules = WINDOWS_PATTERNS + LINUX_PATTERNS + rules
+        rules = WINDOWS_PATTERNS + LINUX_PATTERNS + MACOS_PATTERNS + rules
     return rules

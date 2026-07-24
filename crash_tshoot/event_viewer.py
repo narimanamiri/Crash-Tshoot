@@ -1,8 +1,11 @@
 """
-Advanced Event Viewer engine (FullEventLogView / Event Log Explorer parity).
+Advanced Event Viewer engine (FullEventLogView / journalctl / macOS log parity).
 
-Stdlib + optional PowerShell on Windows for Get-WinEvent / EVTX.
-Used by: python run_diagnoser.py --event-viewer ...
+Works on:
+  Windows — Get-WinEvent / EVTX
+  Linux   — journalctl (JSON)
+  macOS   — log show
+  Any     — offline text/.evtx folder when provided
 """
 
 from __future__ import annotations
@@ -14,10 +17,9 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from .collectors.base import run_cmd, detect_platform
-from .models import Severity
 
 
 PRESETS: dict[str, dict[str, Any]] = {
@@ -77,6 +79,45 @@ PRESETS: dict[str, dict[str, Any]] = {
         "levels": [1, 2, 3],
     },
     "Setup": {"channels": ["Setup"], "levels": [1, 2, 3]},
+    # Cross-platform friendly aliases (mapped per OS in query_*)
+    "Kernel": {"levels": [1, 2], "message_hint": "kernel|panic|fault|watchdog"},
+    "Errors": {"levels": [1, 2]},
+}
+
+
+# Preset → journalctl / macOS predicate hints
+_LINUX_PRESET_HINTS = {
+    "CriticalErrors": {"priority": "err"},
+    "AllWarningsPlus": {"priority": "warning"},
+    "Errors": {"priority": "err"},
+    "BootShutdown": {"priority": "err", "grep": "Started|Stopped|reboot|shutdown|watchdog"},
+    "BSODPower": {"priority": "err", "grep": "panic|BUG|Oops|Power|thermal|MCE"},
+    "Storage": {"priority": "err", "grep": "I/O error|nvme|ata|ext4|XFS|disk|scsi|blk"},
+    "GPUDisplay": {"priority": "err", "grep": "amdgpu|i915|nouveau|drm|GPU|Xid"},
+    "SecurityLogon": {"priority": "info", "grep": "sshd|sudo|auth|Failed password|session"},
+    "WHEA": {"priority": "err", "grep": "mce|Hardware Error|EDAC"},
+    "Network": {"priority": "err", "grep": "link down|NIC|eth|wlan|dns|dhcp"},
+    "DiskIO": {"priority": "err", "grep": "I/O|blk_|nvme|scsi|Buffer I/O"},
+    "Kernel": {"priority": "err", "grep": "kernel|panic|BUG|Oops|lockup"},
+    "WindowsUpdate": {"priority": "err", "grep": "apt|dnf|yum|pacman|zypper|update"},
+    "Defender": {"priority": "warning", "grep": "clamav|fail2ban|audit"},
+    "HyperV": {"priority": "err", "grep": "kvm|qemu|libvirt|xen"},
+    "Setup": {"priority": "notice", "grep": "install|upgrade|kernel"},
+}
+
+_MACOS_PRESET_HINTS = {
+    "CriticalErrors": {"predicate": "messageType == error OR messageType == fault OR eventType == fault"},
+    "AllWarningsPlus": {"predicate": "messageType == error OR messageType == fault OR messageType == default"},
+    "Errors": {"predicate": "messageType == error OR messageType == fault"},
+    "BootShutdown": {"predicate": 'eventMessage CONTAINS[c] "shutdown" OR eventMessage CONTAINS[c] "boot" OR eventMessage CONTAINS[c] "restart"'},
+    "BSODPower": {"predicate": 'eventMessage CONTAINS[c] "panic" OR eventMessage CONTAINS[c] "watchdog" OR eventMessage CONTAINS[c] "SMC"'},
+    "Storage": {"predicate": 'eventMessage CONTAINS[c] "disk" OR eventMessage CONTAINS[c] "I/O" OR eventMessage CONTAINS[c] "NVMe" OR eventMessage CONTAINS[c] "SMART"'},
+    "GPUDisplay": {"predicate": 'eventMessage CONTAINS[c] "GPU" OR eventMessage CONTAINS[c] "graphics" OR eventMessage CONTAINS[c] "Metal" OR eventMessage CONTAINS[c] "IOAccelerator"'},
+    "SecurityLogon": {"predicate": 'eventMessage CONTAINS[c] "login" OR eventMessage CONTAINS[c] "auth" OR eventMessage CONTAINS[c] "ssh"'},
+    "Kernel": {"predicate": 'process == "kernel" OR eventMessage CONTAINS[c] "panic" OR eventMessage CONTAINS[c] "watchdog"'},
+    "Network": {"predicate": 'eventMessage CONTAINS[c] "network" OR eventMessage CONTAINS[c] "Wi-Fi" OR eventMessage CONTAINS[c] "en0"'},
+    "DiskIO": {"predicate": 'eventMessage CONTAINS[c] "disk" OR eventMessage CONTAINS[c] "I/O" OR subsystem CONTAINS "disk"'},
+    "Thermal": {"predicate": 'eventMessage CONTAINS[c] "thermal" OR eventMessage CONTAINS[c] "temperature"'},
 }
 
 
@@ -145,28 +186,356 @@ def _level_name(n: int) -> str:
 
 
 def list_channels() -> list[dict[str, Any]]:
-    if detect_platform() != "windows":
-        return []
-    ps = r"""
+    plat = detect_platform()
+    if plat == "windows":
+        return _list_channels_windows()
+    if plat == "linux":
+        return _list_channels_linux()
+    if plat == "macos":
+        return _list_channels_macos()
+    if plat == "bsd":
+        return [
+            {"Name": "dmesg", "Enabled": True, "Records": -1, "SizeMB": 0},
+            {"Name": "/var/log/messages", "Enabled": Path("/var/log/messages").is_file(), "Records": -1, "SizeMB": 0},
+            {"Name": "/var/log/system.log", "Enabled": Path("/var/log/system.log").is_file(), "Records": -1, "SizeMB": 0},
+        ]
+    return [{"Name": "offline-logs", "Enabled": True, "Records": 0, "SizeMB": 0, "Note": "Use --log-folder"}]
+
+
+def _list_channels_windows() -> list[dict[str, Any]]:
+    # wevtutil el is faster/more reliable than Get-WinEvent -ListLog *
+    code, out, _ = run_cmd(["wevtutil", "el"], timeout=60)
+    names: list[str] = []
+    if code == 0 and out.strip():
+        names = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    else:
+        ps = r"""
 $ErrorActionPreference='SilentlyContinue'
-Get-WinEvent -ListLog * | Where-Object { $_.IsEnabled -or $_.RecordCount -gt 0 } | ForEach-Object {
-  [pscustomobject]@{ Name=$_.LogName; Enabled=$_.IsEnabled; Records=$_.RecordCount; SizeMB=[math]::Round(($_.FileSize/1MB),2); LastWrite=$_.LastWriteTime }
-} | ConvertTo-Json -Compress
+@(Get-WinEvent -ListLog Application,System,Security,Setup -EA SilentlyContinue | ForEach-Object {
+  [pscustomobject]@{ Name=$_.LogName; Enabled=$_.IsEnabled; Records=$_.RecordCount; SizeMB=[math]::Round(($_.FileSize/1MB),2) }
+}) | ConvertTo-Json -Compress
 """
-    code, out, _ = run_cmd(["powershell", "-NoProfile", "-Command", ps], timeout=90)
-    if code != 0 or not out.strip():
+        code, out, _ = run_cmd(["powershell", "-NoProfile", "-Command", ps], timeout=60)
+        if code == 0 and out.strip():
+            try:
+                data = json.loads(out[out.find("[") : out.rfind("]") + 1] if "[" in out else out)
+                return data if isinstance(data, list) else [data]
+            except Exception:
+                pass
         return []
-    try:
-        data = json.loads(out[out.find("[") : out.rfind("]") + 1] if "[" in out else out)
-        return data if isinstance(data, list) else [data]
-    except Exception:
-        return []
+
+    # Enrich classic channels with record counts; others listed as enabled inventory
+    enrich = {"Application", "System", "Security", "Setup"}
+    enriched: dict[str, dict[str, Any]] = {}
+    if any(n in enrich for n in names):
+        ps = r"""
+$ErrorActionPreference='SilentlyContinue'
+@(Get-WinEvent -ListLog Application,System,Security,Setup -EA SilentlyContinue | ForEach-Object {
+  [pscustomobject]@{ Name=$_.LogName; Enabled=$_.IsEnabled; Records=$_.RecordCount; SizeMB=[math]::Round(($_.FileSize/1MB),2) }
+}) | ConvertTo-Json -Compress
+"""
+        code, out, _ = run_cmd(["powershell", "-NoProfile", "-Command", ps], timeout=45)
+        if code == 0 and out.strip():
+            try:
+                data = json.loads(out[out.find("[") : out.rfind("]") + 1] if "[" in out else out)
+                if isinstance(data, dict):
+                    data = [data]
+                for row in data:
+                    enriched[str(row.get("Name"))] = row
+            except Exception:
+                pass
+
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        if name in enriched:
+            rows.append(enriched[name])
+        else:
+            rows.append({"Name": name, "Enabled": True, "Records": -1, "SizeMB": 0})
+    return rows
+
+
+def _list_channels_linux() -> list[dict[str, Any]]:
+    out_list = []
+    code, out, _ = run_cmd(["journalctl", "--header"], timeout=30)
+    if code == 0 and out.strip():
+        out_list.append({"Name": "journald", "Enabled": True, "Records": -1, "SizeMB": 0, "Note": out.splitlines()[0][:120]})
+    for unit_src in ("system", "user"):
+        out_list.append({"Name": f"journal:{unit_src}", "Enabled": True, "Records": -1, "SizeMB": 0})
+    for p in ("/var/log/syslog", "/var/log/messages", "/var/log/kern.log", "/var/log/auth.log"):
+        path = Path(p)
+        if path.is_file():
+            out_list.append(
+                {
+                    "Name": p,
+                    "Enabled": True,
+                    "Records": -1,
+                    "SizeMB": round(path.stat().st_size / 1e6, 2),
+                }
+            )
+    return out_list
+
+
+def _list_channels_macos() -> list[dict[str, Any]]:
+    items = [
+        {"Name": "unified:log show", "Enabled": True, "Records": -1, "SizeMB": 0},
+        {"Name": "pmset:log", "Enabled": True, "Records": -1, "SizeMB": 0},
+    ]
+    for p in (
+        Path.home() / "Library/Logs/DiagnosticReports",
+        Path("/Library/Logs/DiagnosticReports"),
+        Path("/var/log/system.log"),
+    ):
+        if p.exists():
+            size = p.stat().st_size / 1e6 if p.is_file() else 0
+            items.append({"Name": str(p), "Enabled": True, "Records": -1, "SizeMB": round(size, 2)})
+    return items
 
 
 def query_events(filt: EvFilter) -> list[dict[str, Any]]:
+    """Query live OS logs; platform-dispatch."""
+    plat = detect_platform()
+    if plat == "windows":
+        return _query_windows(filt)
+    if plat == "linux":
+        return _query_linux(filt)
+    if plat == "macos":
+        return _query_macos(filt)
+    if plat == "bsd":
+        return _query_bsd(filt)
+    return []
+
+
+def _normalize_line_event(
+    *,
+    when: str,
+    message: str,
+    provider: str,
+    channel: str,
+    level: str = "Information",
+    level_raw: int = 4,
+    event_id: int = 0,
+) -> dict[str, Any]:
+    return {
+        "TimeCreated": when,
+        "Id": event_id,
+        "Level": level,
+        "LevelRaw": level_raw,
+        "Provider": provider,
+        "Channel": channel,
+        "RecordId": 0,
+        "Task": "",
+        "Opcode": "",
+        "Message": message,
+        "EventData": {},
+        "Strings": [message[:200]],
+        "UserName": None,
+        "Xml": None,
+    }
+
+
+def _filter_message(ev: dict[str, Any], filt: EvFilter) -> bool:
+    msg = ev.get("Message") or ""
+    prov = ev.get("Provider") or ""
+    if filt.message_contains and filt.message_contains.lower() not in msg.lower():
+        return False
+    if filt.user_contains and filt.user_contains.lower() not in msg.lower():
+        return False
+    if filt.providers:
+        if not any(p.lower() in prov.lower() for p in filt.providers):
+            return False
+    if filt.exclude_providers:
+        if any(p.lower() in prov.lower() for p in filt.exclude_providers):
+            return False
+    if filt.levels and int(ev.get("LevelRaw") or 0) not in filt.levels:
+        # On unix we approximate levels; allow through if preset used message grep
+        if not filt.preset:
+            return False
+    return True
+
+
+def _query_linux(filt: EvFilter) -> list[dict[str, Any]]:
+    hint = _LINUX_PRESET_HINTS.get(filt.preset or "", {})
+    priority = hint.get("priority", "err")
+    if filt.levels:
+        # map 1,2 -> err, 3 -> warning
+        if max(filt.levels) <= 2:
+            priority = "err"
+        elif max(filt.levels) <= 3:
+            priority = "warning"
+        else:
+            priority = "info"
+    args = [
+        "journalctl",
+        "-p",
+        priority,
+        f"--since={filt.days} days ago",
+        "--no-pager",
+        "-o",
+        "json",
+        "-n",
+        str(min(filt.max_events, 5000)),
+    ]
+    if hint.get("grep"):
+        args.extend(["--grep", hint["grep"]])
+    if filt.message_contains:
+        args.extend(["--grep", filt.message_contains])
+    code, out, _ = run_cmd(args, timeout=120)
+    if code != 0 or not out.strip():
+        # fallback text
+        code, out, _ = run_cmd(
+            ["journalctl", "-p", priority, f"--since={filt.days} days ago", "--no-pager", "-n", str(filt.max_events)],
+            timeout=90,
+        )
+        events = []
+        for ln in out.splitlines()[-filt.max_events :]:
+            ev = _normalize_line_event(
+                when=datetime.now().isoformat(timespec="seconds"),
+                message=ln,
+                provider="journald",
+                channel="journal",
+                level="Error" if priority == "err" else "Warning",
+                level_raw=2 if priority == "err" else 3,
+            )
+            if _filter_message(ev, filt):
+                events.append(ev)
+        return events[: filt.max_events]
+
+    events = []
+    for ln in out.splitlines():
+        if not ln.strip():
+            continue
+        try:
+            j = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        # realtime timestamp usec
+        ts = j.get("__REALTIME_TIMESTAMP") or j.get("_SOURCE_REALTIME_TIMESTAMP")
+        when = datetime.now().isoformat(timespec="seconds")
+        if ts:
+            try:
+                when = datetime.fromtimestamp(int(ts) / 1_000_000).isoformat(timespec="seconds")
+            except Exception:
+                pass
+        pri = int(j.get("PRIORITY", 5))
+        # syslog: 0-3 ~ critical/error, 4 warning
+        if pri <= 2:
+            level, level_raw = "Critical", 1
+        elif pri == 3:
+            level, level_raw = "Error", 2
+        elif pri == 4:
+            level, level_raw = "Warning", 3
+        else:
+            level, level_raw = "Information", 4
+        msg = j.get("MESSAGE") or ""
+        prov = j.get("SYSLOG_IDENTIFIER") or j.get("_SYSTEMD_UNIT") or j.get("_COMM") or "journald"
+        ev = _normalize_line_event(
+            when=when,
+            message=str(msg),
+            provider=str(prov),
+            channel=str(j.get("_SYSTEMD_UNIT") or "journal"),
+            level=level,
+            level_raw=level_raw,
+        )
+        ev["EventData"] = {k: str(v) for k, v in j.items() if k.startswith("_") or k in ("PRIORITY", "MESSAGE")}
+        if filt.exclude_event_ids:
+            continue
+        if _filter_message(ev, filt):
+            events.append(ev)
+        if len(events) >= filt.max_events:
+            break
+    return events
+
+
+def _query_macos(filt: EvFilter) -> list[dict[str, Any]]:
+    hint = _MACOS_PRESET_HINTS.get(filt.preset or "", {})
+    predicate = hint.get("predicate", "messageType == error OR messageType == fault")
+    if filt.message_contains:
+        safe = filt.message_contains.replace('"', "")
+        predicate = f'({predicate}) AND eventMessage CONTAINS[c] "{safe}"'
+    args = [
+        "log",
+        "show",
+        "--last",
+        f"{filt.days}d",
+        "--style",
+        "ndjson",
+        "--predicate",
+        predicate,
+    ]
+    code, out, _ = run_cmd(args, timeout=120)
+    events = []
+    if code == 0 and out.strip():
+        for ln in out.splitlines():
+            if not ln.strip():
+                continue
+            try:
+                j = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            msg = j.get("eventMessage") or j.get("message") or ""
+            when = j.get("timestamp") or datetime.now().isoformat(timespec="seconds")
+            mtype = (j.get("messageType") or "").lower()
+            if mtype in ("fault", "error"):
+                level, level_raw = ("Error", 2) if mtype == "error" else ("Critical", 1)
+            elif mtype in ("default", "info"):
+                level, level_raw = "Information", 4
+            else:
+                level, level_raw = "Warning", 3
+            prov = j.get("processImagePath") or j.get("senderImagePath") or j.get("subsystem") or "log"
+            if isinstance(prov, str) and "/" in prov:
+                prov = Path(prov).name
+            ev = _normalize_line_event(
+                when=str(when),
+                message=str(msg),
+                provider=str(prov),
+                channel=str(j.get("subsystem") or "unified"),
+                level=level,
+                level_raw=level_raw,
+            )
+            if _filter_message(ev, filt):
+                events.append(ev)
+            if len(events) >= filt.max_events:
+                break
+        return events
+
+    # fallback compact
+    code, out, _ = run_cmd(
+        ["log", "show", "--last", f"{min(filt.days, 2)}d", "--style", "compact", "--predicate", predicate],
+        timeout=90,
+    )
+    for ln in (out or "").splitlines()[-filt.max_events :]:
+        ev = _normalize_line_event(
+            when=datetime.now().isoformat(timespec="seconds"),
+            message=ln,
+            provider="log",
+            channel="unified",
+            level="Error",
+            level_raw=2,
+        )
+        if _filter_message(ev, filt):
+            events.append(ev)
+    return events[: filt.max_events]
+
+
+def _query_bsd(filt: EvFilter) -> list[dict[str, Any]]:
+    events = []
+    code, out, _ = run_cmd(["dmesg"], timeout=60)
+    for ln in (out or "").splitlines()[-filt.max_events :]:
+        ev = _normalize_line_event(
+            when=datetime.now().isoformat(timespec="seconds"),
+            message=ln,
+            provider="dmesg",
+            channel="kernel",
+            level="Warning",
+            level_raw=3,
+        )
+        if _filter_message(ev, filt):
+            events.append(ev)
+    return events[: filt.max_events]
+
+
+def _query_windows(filt: EvFilter) -> list[dict[str, Any]]:
     """Query live Windows logs via PowerShell; return normalized event dicts."""
-    if detect_platform() != "windows":
-        return []
 
     end = filt.end or datetime.now()
     start = filt.start or (end - timedelta(days=filt.days))
@@ -270,15 +639,54 @@ $out | ConvertTo-Json -Depth 6 -Compress
 
 
 def load_evtx_folder(path: str | Path, filt: EvFilter) -> list[dict[str, Any]]:
-    """Load .evtx files via Get-WinEvent -Path."""
+    """Load .evtx (Windows) or text logs (any OS) from a file/folder."""
     root = Path(path)
+    plat = detect_platform()
+
+    # Text / syslog offline on any platform
+    text_files: list[Path] = []
+    if root.is_file() and root.suffix.lower() not in (".evtx",):
+        text_files = [root]
+    elif root.is_dir():
+        for pat in ("*.log", "*.txt", "syslog*", "messages*", "kern.log*", "*.out"):
+            text_files.extend(root.glob(pat))
+            text_files.extend(root.glob("**/" + pat))
+        text_files = list({p.resolve(): p for p in text_files if p.is_file()}.values())[:100]
+
+    events: list[dict[str, Any]] = []
+    if text_files:
+        for f in text_files:
+            try:
+                raw = f.read_text(errors="replace")
+            except OSError:
+                continue
+            for i, ln in enumerate(raw.splitlines()[-filt.max_events :], 1):
+                if filt.message_contains and filt.message_contains.lower() not in ln.lower():
+                    continue
+                events.append(
+                    _normalize_line_event(
+                        when=datetime.now().isoformat(timespec="seconds"),
+                        message=ln,
+                        provider=f.name,
+                        channel=str(f),
+                        level="Information",
+                        level_raw=4,
+                        event_id=i,
+                    )
+                )
+                if len(events) >= filt.max_events:
+                    return events
+
+    if plat != "windows":
+        return events[: filt.max_events]
+
     files: list[Path] = []
     if root.is_file() and root.suffix.lower() == ".evtx":
         files = [root]
     elif root.is_dir():
         files = list(root.rglob("*.evtx"))[:80]
-    if not files or detect_platform() != "windows":
-        return []
+    if not files:
+        return events[: filt.max_events]
 
     end = filt.end or datetime.now()
     start = filt.start or (end - timedelta(days=filt.days))
@@ -327,7 +735,7 @@ $out | ConvertTo-Json -Depth 5 -Compress
                     break
         except Exception:
             continue
-    return collected
+    return (events + collected)[: filt.max_events]
 
 
 def aggregates(events: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

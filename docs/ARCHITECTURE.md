@@ -1,9 +1,9 @@
 # Architecture
 
 Crash-Tshoot v2 is a **cross-platform application** (Python 3.10+) that diagnoses
-crashes, hangs, and instability on **Windows** and **Linux**. Optional deep Windows
-coverage still uses [`SystemDiagnoser.ps1`](../SystemDiagnoser.ps1). Optional narrative
-analysis uses a **local LM Studio** OpenAI-compatible API.
+crashes, hangs, and instability on **Windows, Linux, macOS, and BSD**. Optional deep
+Windows coverage still uses [`SystemDiagnoser.ps1`](../SystemDiagnoser.ps1). Optional
+narrative analysis uses a **local LM Studio** OpenAI-compatible API.
 
 ## Design principles
 
@@ -21,9 +21,9 @@ analysis uses a **local LM Studio** OpenAI-compatible API.
 ┌─────────────┐   ┌──────────────────┐   ┌─────────────┐   ┌──────────────┐
 │ Collectors  │ → │ Pattern / anomaly│ → │ Root-cause  │ → │ HTML + JSON  │
 │ Win/Linux/  │   │ engine (rules)   │   │ scorer      │   │ reports      │
-│ offline logs│   └──────────────────┘   └─────────────┘   └──────────────┘
-└─────────────┘                                    │
-                                                   ▼ optional
+│ macOS/BSD/  │   └──────────────────┘   └─────────────┘   └──────────────┘
+│ offline     │                                    │
+└─────────────┘                                    ▼ optional
                                             ┌─────────────┐
                                             │ LM Studio   │
                                             │ /v1/chat…   │
@@ -48,7 +48,10 @@ analysis uses a **local LM Studio** OpenAI-compatible API.
 |----|--------------|-------|
 | Windows | wevtutil, LiveKernelReports, Minidump, free space, GPU CIM; optional PS1 | Prefer admin |
 | Linux | journalctl, dmesg, /var/log/*, SMART, coredumpctl, systemd --failed | Prefer root for SMART/dmesg |
+| macOS | `log show`, DiagnosticReports, pmset, diskutil | Full Disk Access may be needed |
+| BSD | dmesg, /var/log/* | Prefer `--log-folder /var/log` |
 | Any | `--log` / `--log-folder` / `--offline-only` | Forensic copies |
 
-See [WINDOWS.md](WINDOWS.md), [LINUX.md](LINUX.md), [LOG_ANALYSIS.md](LOG_ANALYSIS.md),
-[LLM_LM_STUDIO.md](LLM_LM_STUDIO.md), [CLI_REFERENCE.md](CLI_REFERENCE.md).
+See [PLATFORMS.md](PLATFORMS.md), [WINDOWS.md](WINDOWS.md), [LINUX.md](LINUX.md),
+[LOG_ANALYSIS.md](LOG_ANALYSIS.md), [LLM_LM_STUDIO.md](LLM_LM_STUDIO.md),
+[CLI_REFERENCE.md](CLI_REFERENCE.md).

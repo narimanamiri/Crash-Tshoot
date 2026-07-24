@@ -31,11 +31,16 @@ Event Browser (filters, EventData string columns, bookmarks).
 
 `CriticalErrors`, `AllWarningsPlus`, `BootShutdown`, `BSODPower`, `Storage`,
 `GPUDisplay`, `SecurityLogon`, `WHEA`, `WindowsUpdate`, `Defender`, `Network`,
-`DiskIO`, `HyperV`, `Setup`
+`DiskIO`, `HyperV`, `Setup`, plus cross-platform aliases `Kernel`, `Errors`.
+
+On **Linux / macOS / BSD**, the same preset names map to journalctl / `log show` /
+dmesg filters (see `docs/PLATFORMS.md`). Windows-specific Event IDs are ignored when
+not applicable.
 
 ```bash
 python run_diagnoser.py --list-presets
 python run_diagnoser.py --event-viewer --preset GPUDisplay --days 14
+python run_diagnoser.py --event-viewer --preset Errors --days 2   # works on all OSes
 python run_diagnoser.py --event-viewer --full-scan --level Critical,Error --export Csv,Tsv,Json,Html,RawXml
 python run_diagnoser.py --event-viewer --evtx D:\logs\System.evtx --export Html
 python run_diagnoser.py --event-viewer --preset BootShutdown --save-filter filters\boot.json

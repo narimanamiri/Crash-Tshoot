@@ -18,7 +18,22 @@ def detect_platform() -> str:
         return "windows"
     if s == "linux":
         return "linux"
+    if s == "darwin":
+        return "macos"
+    if s in ("freebsd", "openbsd", "netbsd"):
+        return "bsd"
     return "unknown"
+
+
+def default_mounts(plat: str | None = None) -> list[str]:
+    plat = plat or detect_platform()
+    if plat == "windows":
+        return ["C:\\"]
+    if plat == "macos":
+        return ["/", "/System/Volumes/Data"]
+    if plat in ("linux", "bsd"):
+        return ["/", "/var", "/home", "/tmp"]
+    return ["/"]
 
 
 def run_cmd(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
